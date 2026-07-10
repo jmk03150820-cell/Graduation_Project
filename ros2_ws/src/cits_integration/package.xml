@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>cits_integration</name>
+  <version>0.0.1</version>
+  <description>
+    Data-integration node: subscribes to fake_rsu's JSON C-ITS messages
+    (CAM/DENM/SPAT) and converts/fuses them into Autoware Universe
+    perception messages (DetectedObjects, TrafficLightGroupArray).
+    Stands in for a dedicated Adapter node for now; a perception_ai_node
+    input can be added later once its output contract is defined.
+  </description>
+  <maintainer email="jmk03150820@gmail.com">jmk</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>autoware_perception_msgs</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

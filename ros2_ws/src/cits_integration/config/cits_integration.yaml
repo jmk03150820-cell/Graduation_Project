@@ -1,0 +1,24 @@
+cits_integration_node:
+  ros__parameters:
+    # Inputs: cits_adapter's converted RSU objects + fake_rsu's SPAT/DENM JSON
+    input_adapter_objects_topic: "cits_adapter/objects"
+    input_spat_topic: "fake_rsu/spat"
+    input_denm_topic: "fake_rsu/denm"
+
+    # Outputs (Autoware Universe perception topics)
+    output_objects_topic: "/perception/object_recognition/detection/objects"
+    output_traffic_signals_topic: "/perception/traffic_light_recognition/traffic_signals"
+
+    # Used only for DENM (lat/lon-based). Must match fake_rsu's
+    # ref_lat/ref_lon (config/fake_rsu.yaml) until a real lanelet2 map +
+    # map projector origin exists.
+    map_origin_lat: 37.5665
+    map_origin_lon: 126.9780
+    output_frame_id: "map"
+
+    object_publish_rate_hz: 10.0
+    adapter_stale_timeout_s: 2.0
+    denm_stale_timeout_s: 2.0
+
+    hazard_size_m: 2.0
+    hazard_height_m: 1.0

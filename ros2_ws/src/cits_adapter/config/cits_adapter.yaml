@@ -1,0 +1,17 @@
+cits_adapter_node:
+  ros__parameters:
+    input_topic: "cits/rsu/detected_objects"
+    output_topic: "cits_adapter/objects"
+    output_frame_id: "map"
+
+    # RSU's own pose in the map frame — placeholder (0,0,0) until the real
+    # RSU mounting position/orientation is surveyed. Must be updated once
+    # known, otherwise BEV positions land at the wrong place in the map.
+    rsu_x: 0.0
+    rsu_y: 0.0
+    rsu_yaw_deg: 0.0
+
+    min_confidence: 0.0
+    max_object_age_s: 2.0
+
+    verbose_logging: true

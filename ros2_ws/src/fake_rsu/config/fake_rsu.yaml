@@ -1,0 +1,38 @@
+fake_rsu_node:
+  ros__parameters:
+    topic_prefix: "fake_rsu"
+
+    # RSU / intersection identity
+    station_id: 9000
+    intersection_id: 1
+
+    # Reference position of the fake intersection (default: Seoul City Hall,
+    # replace with your test-track / map origin coordinates).
+    ref_lat: 37.5665
+    ref_lon: 126.9780
+    lane_length_m: 60.0
+
+    # SPAT signal timing (two-phase NS/EW intersection)
+    green_s: 15.0
+    yellow_s: 3.0
+    all_red_s: 2.0
+
+    # CAM: one simulated remote vehicle oscillating along an approach lane
+    cam_approach: "south"
+    cam_station_id: 42
+    vehicle_speed_mps: 8.0
+    vehicle_length_m: 4.5
+    vehicle_width_m: 1.9
+
+    # DENM: periodic fake hazard event for testing planning reaction
+    denm_interval_s: 30.0
+    denm_duration_s: 10.0
+    denm_cause: "roadworks"
+    denm_approach: "north"
+    denm_distance_m: 25.0
+
+    # Publish rates
+    cam_rate_hz: 10.0
+    spat_rate_hz: 2.0
+    map_rate_hz: 0.2
+    denm_check_rate_hz: 2.0

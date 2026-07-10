@@ -1,0 +1,12 @@
+build/
+install/
+log/
+__pycache__/
+*.pyc
+
+.claude/settings.local.json
+
+# OS/OneDrive noise
+Thumbs.db
+desktop.ini
+.DS_Store
