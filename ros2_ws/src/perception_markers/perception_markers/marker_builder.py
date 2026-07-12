@@ -44,6 +44,11 @@ _TRAFFIC_LIGHT_COLOR = {
     TrafficLightElement.AMBER: (1.0, 0.8, 0.0, 0.9),
     TrafficLightElement.GREEN: (0.1, 1.0, 0.2, 0.9),
 }
+_TRAFFIC_LIGHT_STATE_NAME = {
+    TrafficLightElement.RED: 'RED',
+    TrafficLightElement.AMBER: 'YELLOW',
+    TrafficLightElement.GREEN: 'GREEN',
+}
 _UNKNOWN_TRAFFIC_LIGHT_COLOR = (0.5, 0.5, 0.5, 0.6)
 
 
@@ -100,19 +105,27 @@ def build_object_markers(objects_msg, ns='perception_objects', lifetime_s=0.5):
 
 def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic_lights',
                                  lifetime_s=0.5):
-    """One SPHERE per signal group, spread out along x so groups don't
-    overlap. Position is a fixed placeholder, not each group's real
-    location - TrafficLightGroupArray only carries a group id (it expects
-    the real location to come from a lanelet2 map's regulatory elements,
-    which this project doesn't have yet). See README."""
+    """One SPHERE per signal group plus a TEXT label ("group N: STATE")
+    above it, spread out along x so groups don't overlap - an
+    intersection normally has several independent signal groups (e.g. one
+    per direction), so more than one sphere at once is expected, not a
+    bug; the label disambiguates which is which. Position is a fixed
+    placeholder, not each group's real location - TrafficLightGroupArray
+    only carries a group id (it expects the real location to come from a
+    lanelet2 map's regulatory elements, which this project doesn't have
+    yet). See README."""
     markers = []
     x, y, z = position_xyz
     for i, group in enumerate(signals_msg.traffic_light_groups):
         color = _UNKNOWN_TRAFFIC_LIGHT_COLOR
+        state_name = 'UNKNOWN'
         for element in group.elements:
             if element.color in _TRAFFIC_LIGHT_COLOR:
                 color = _TRAFFIC_LIGHT_COLOR[element.color]
+                state_name = _TRAFFIC_LIGHT_STATE_NAME[element.color]
                 break
+
+        marker_x = x + i * 1.5
 
         marker = Marker()
         marker.header.frame_id = frame_id
@@ -121,7 +134,7 @@ def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic
         marker.id = group.traffic_light_group_id
         marker.type = Marker.SPHERE
         marker.action = Marker.ADD
-        marker.pose.position.x = x + i * 1.5
+        marker.pose.position.x = marker_x
         marker.pose.position.y = y
         marker.pose.position.z = z
         marker.pose.orientation.w = 1.0
@@ -129,5 +142,22 @@ def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic
         _set_color(marker, color)
         _set_lifetime(marker, lifetime_s)
         markers.append(marker)
+
+        text = Marker()
+        text.header.frame_id = frame_id
+        text.header.stamp = signals_msg.stamp
+        text.ns = ns + '_label'
+        text.id = group.traffic_light_group_id
+        text.type = Marker.TEXT_VIEW_FACING
+        text.action = Marker.ADD
+        text.pose.position.x = marker_x
+        text.pose.position.y = y
+        text.pose.position.z = z + 0.7
+        text.pose.orientation.w = 1.0
+        text.scale.z = 0.5
+        _set_color(text, (1.0, 1.0, 1.0, 0.9))
+        text.text = f'group {group.traffic_light_group_id}: {state_name}'
+        _set_lifetime(text, lifetime_s)
+        markers.append(text)
 
     return MarkerArray(markers=markers)

@@ -86,24 +86,37 @@ def test_pedestrian_and_car_get_different_colors():
     assert color_a != color_b
 
 
-def test_build_traffic_light_markers_one_per_group():
+def test_build_traffic_light_markers_one_sphere_and_one_label_per_group():
     msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
     markers = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0))
-    assert len(markers.markers) == 2
+    assert len(markers.markers) == 4
+    spheres = [m for m in markers.markers if m.type == Marker.SPHERE]
+    labels = [m for m in markers.markers if m.type == Marker.TEXT_VIEW_FACING]
+    assert len(spheres) == 2
+    assert len(labels) == 2
 
 
 def test_build_traffic_light_markers_are_spread_out_along_x():
     msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
     markers = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0))
-    xs = sorted(m.pose.position.x for m in markers.markers)
+    spheres = [m for m in markers.markers if m.type == Marker.SPHERE]
+    xs = sorted(m.pose.position.x for m in spheres)
     assert xs[0] != xs[1]
 
 
 def test_build_traffic_light_markers_red_and_green_differ_in_color():
     msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
     markers = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0))
-    colors = {(m.color.r, m.color.g, m.color.b) for m in markers.markers}
+    spheres = [m for m in markers.markers if m.type == Marker.SPHERE]
+    colors = {(m.color.r, m.color.g, m.color.b) for m in spheres}
     assert len(colors) == 2
+
+
+def test_build_traffic_light_markers_labels_include_group_id_and_state():
+    msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
+    markers = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0))
+    labels = {m.text for m in markers.markers if m.type == Marker.TEXT_VIEW_FACING}
+    assert labels == {'group 0: RED', 'group 1: GREEN'}
 
 
 def test_build_traffic_light_markers_no_groups_gives_empty_array():
