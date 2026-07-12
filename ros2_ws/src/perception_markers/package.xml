@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>perception_markers</name>
+  <version>0.0.1</version>
+  <description>
+    Converts Autoware's custom perception messages (DetectedObjects,
+    TrafficLightGroupArray) into visualization_msgs/MarkerArray, so tools
+    that don't understand Autoware's message types natively (Foxglove,
+    RViz) can render objects and traffic-light state in the 3D panel.
+  </description>
+  <maintainer email="jmk03150820@gmail.com">jmk</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>visualization_msgs</depend>
+  <depend>autoware_perception_msgs</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
