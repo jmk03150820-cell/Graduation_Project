@@ -1,0 +1,15 @@
+fake_vehicle_node:
+  ros__parameters:
+    # Input: vehicle_interface_node's hardware-spec command (placeholder
+    # schema, see README - vehicle_interface_node doesn't exist yet)
+    command_topic: "/vehicle/command"
+
+    # Output: simulated hardware feedback
+    status_topic: "/vehicle/raw_status"
+
+    publish_rate_hz: 20.0
+    command_stale_timeout_s: 1.0
+
+    max_accel_mps2: 2.0
+    max_decel_mps2: 3.0
+    max_steer_rate_deg_s: 45.0

@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>fake_vehicle</name>
+  <version>0.0.1</version>
+  <description>
+    Simulates the vehicle's physical response to vehicle_interface_node's
+    /vehicle/command (rate-limited speed/steer tracking) and republishes
+    /vehicle/raw_status, so the pipeline can be verified before a real
+    vehicle is connected. Stands in for vehicle_interface_node's hardware
+    feedback until 신무웅's real vehicle_interface_node exists.
+  </description>
+  <maintainer email="jmk03150820@gmail.com">jmk</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
