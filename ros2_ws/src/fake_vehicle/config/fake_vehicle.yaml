@@ -4,6 +4,10 @@ fake_vehicle_node:
     # schema, see README - vehicle_interface_node doesn't exist yet)
     command_topic: "/vehicle/command"
 
+    # TEMPORARY fallback used only when command_topic is stale/missing -
+    # see README ("vehicle_interface_node stand-in" section)
+    autoware_control_topic: "/autoware/control"
+
     # Output: simulated hardware feedback
     status_topic: "/vehicle/raw_status"
 
@@ -13,3 +17,10 @@ fake_vehicle_node:
     max_accel_mps2: 2.0
     max_decel_mps2: 3.0
     max_steer_rate_deg_s: 45.0
+
+    # Visualization: dead-reckoned ego pose as a map -> base_link TF and a
+    # MarkerArray (red when stopped, green when moving) for RViz/Foxglove
+    ego_marker_topic: "/fake_vehicle/ego_marker"
+    map_frame_id: "map"
+    ego_frame_id: "base_link"
+    stopped_speed_threshold_kmh: 0.5

@@ -12,6 +12,9 @@ def test_starts_at_rest():
     sim = VehicleSimulator()
     assert sim.speed_kmh == 0.0
     assert sim.steer_deg == 0.0
+    assert sim.x == 0.0
+    assert sim.y == 0.0
+    assert sim.yaw_deg == 0.0
 
 
 def test_accel_is_rate_limited_not_instant():
@@ -55,3 +58,24 @@ def test_steer_tracks_negative_targets_too():
     sim = VehicleSimulator(max_steer_rate_deg_s=90.0)
     _, steer = sim.step(dt_s=1.0, target_speed_kmh=0.0, target_steer_deg=-20.0)
     assert math.isclose(steer, -20.0)
+
+
+def test_stopped_vehicle_does_not_move():
+    sim = VehicleSimulator()
+    sim.step(dt_s=1.0, target_speed_kmh=0.0, target_steer_deg=0.0)
+    assert sim.x == 0.0
+    assert sim.y == 0.0
+
+
+def test_moving_straight_advances_along_x_only():
+    sim = VehicleSimulator(max_accel_mps2=1000.0)
+    sim.step(dt_s=1.0, target_speed_kmh=36.0, target_steer_deg=0.0)  # snap to 10 m/s
+    assert sim.x > 0.0
+    assert math.isclose(sim.y, 0.0, abs_tol=1e-9)
+
+
+def test_nonzero_steer_curves_the_path_away_from_straight_x():
+    sim = VehicleSimulator(max_accel_mps2=1000.0, max_steer_rate_deg_s=1000.0)
+    sim.step(dt_s=1.0, target_speed_kmh=36.0, target_steer_deg=45.0)
+    assert sim.yaw_deg > 0.0
+    assert sim.y > 0.0

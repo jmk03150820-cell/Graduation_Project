@@ -18,6 +18,22 @@ Phase 1 대체 노드.
    속도 0·조향 0으로 두어 페일세이프 감속 (r2lp1_planning_node, cits_adapter와
    동일한 안전 디폴트 컨벤션)
 4. 결과를 `/vehicle/raw_status`(JSON: `speed_kmh`, `steer_deg`, `timestamp`)로 발행
+5. 시뮬레이션 속도·조향으로 map 프레임 위치를 dead-reckoning 적분해서
+   `map -> base_link` TF와 `/fake_vehicle/ego_marker`(MarkerArray, 차량 크기
+   CUBE)를 발행 - 정지 중이면 빨간색, 움직이면 초록색이라서 RViz/Foxglove
+   3D 패널에서 "신호등 RED일 때 실제로 멈추는지"를 눈으로 확인할 수 있음
+
+### ⚠️ TEMPORARY: `/autoware/control` 직접 구독 (vehicle_interface_node 없음)
+
+원래 데이터 흐름은 `r2lp1_planning_node → vehicle_interface_node → fake_vehicle_node`
+인데, `vehicle_interface_node`가 아직 없어서 `/vehicle/command`가 전혀 발행되지
+않는다 - 즉 지금까지 이 노드는 판단 결과를 한 번도 못 받고 항상 안전정지
+상태였다. 그래서 `/vehicle/command`가 stale일 때만 `/autoware/control`
+(Twist)을 직접 받아서 단위만 변환(m/s→km/h, rad/s→deg/s)해 대신 씀 -
+`vehicle_interface_node`의 변환 역할을 아주 단순하게 흉내낸 것뿐이고
+리미터 등 안전장치는 없음. **`vehicle_interface_node`가 실제로 생기면 이
+fallback(`_on_autoware_control`, `autoware_control_topic` 파라미터)은
+지워야 함.**
 
 물리 시뮬레이션(`vehicle_simulator.py`)은 rclpy 의존성이 없어 ROS 없이
 단위테스트 가능:
@@ -37,12 +53,19 @@ python3 -m pytest test/test_vehicle_simulator.py -v
 - **`/vehicle/raw_status`의 JSON 스키마**도 같은 이유로 placeholder
   (`speed_kmh`, `steer_deg`, `timestamp`).
 - **가감속/조향 rate 한계값**은 전부 임의 기본값이며 실제 차량 사양과 무관.
+- **위치 적분(dead-reckoning)은 단순화된 모델**: `steer_deg`를 실제 조향각이
+  아니라 그냥 요레이트(yaw rate, deg/s)로 취급해서 x/y/yaw를 적분함. 자전거
+  모델(bicycle model)이 아니라서 궤적 정확도는 없고, "움직이다가 멈추는지"를
+  시각적으로 보여주는 용도로만 충분함.
+- 이 노드가 `map -> base_link` TF를 직접 발행하므로, 별도의
+  `static_transform_publisher`를 띄워둔 게 있다면 충돌하니 꺼야 함.
 
 ## 실행
 
 ```bash
 ros2 launch fake_vehicle fake_vehicle.launch.py &
 ros2 topic echo /vehicle/raw_status
+ros2 topic echo /fake_vehicle/ego_marker
 ```
 
 `vehicle_interface_node`가 없는 동안은 아래처럼 수동으로 `/vehicle/command`를
