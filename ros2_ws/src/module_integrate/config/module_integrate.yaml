@@ -1,0 +1,18 @@
+module_integrate_node:
+  ros__parameters:
+    # Inputs: cits_integration's fused Autoware-native perception outputs
+    input_objects_topic: "/perception/object_recognition/detection/objects"
+    input_traffic_signals_topic: "/perception/traffic_light_recognition/traffic_signals"
+
+    # Output: r2lp1_planning_node's expected master JSON
+    output_topic: "/integrate/chameleon_in"
+    log_topic: "/system/log"
+
+    output_rate_hz: 10.0
+    objects_stale_timeout_s: 1.0
+    signals_stale_timeout_s: 1.0
+
+    # Ego position placeholder (map origin) used to compute hazard
+    # distance/angle until real localization is wired in.
+    ego_x: 0.0
+    ego_y: 0.0
