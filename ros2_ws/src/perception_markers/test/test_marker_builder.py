@@ -4,6 +4,8 @@ visualization_msgs installed (no rclpy/node needed).
 Run standalone with:  python3 -m pytest test/test_marker_builder.py
 """
 
+import math
+
 from autoware_perception_msgs.msg import (
     DetectedObject,
     DetectedObjects,
@@ -96,12 +98,29 @@ def test_build_traffic_light_markers_one_sphere_and_one_label_per_group():
     assert len(labels) == 2
 
 
-def test_build_traffic_light_markers_are_spread_out_along_x():
+def test_build_traffic_light_markers_are_spread_across_lanes_not_x():
     msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
-    markers = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0))
+    markers = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0), lane_spacing_m=4.0)
     spheres = [m for m in markers.markers if m.type == Marker.SPHERE]
-    xs = sorted(m.pose.position.x for m in spheres)
-    assert xs[0] != xs[1]
+    xs = {m.pose.position.x for m in spheres}
+    ys = sorted(m.pose.position.y for m in spheres)
+    assert xs == {10.0}  # same stop-line distance for every lane
+    assert math.isclose(ys[1] - ys[0], 4.0)
+
+
+def test_build_traffic_light_markers_lanes_are_centered_on_y():
+    msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
+    markers = build_traffic_light_markers(msg, 'map', (10.0, 100.0, 3.0), lane_spacing_m=4.0)
+    spheres = [m for m in markers.markers if m.type == Marker.SPHERE]
+    avg_y = sum(m.pose.position.y for m in spheres) / len(spheres)
+    assert math.isclose(avg_y, 100.0)
+
+
+def test_build_traffic_light_markers_lane_assignment_is_stable_regardless_of_message_order():
+    msg = _make_signals(TrafficLightElement.GREEN, TrafficLightElement.RED)  # group 0 green, group 1 red
+    markers = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0), lane_spacing_m=4.0)
+    spheres = {m.id: m for m in markers.markers if m.type == Marker.SPHERE}
+    assert spheres[0].pose.position.y < spheres[1].pose.position.y
 
 
 def test_build_traffic_light_markers_red_and_green_differ_in_color():

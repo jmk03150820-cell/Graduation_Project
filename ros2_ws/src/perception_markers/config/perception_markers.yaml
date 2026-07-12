@@ -10,7 +10,11 @@ perception_markers_node:
 
     # Placeholder position for traffic-light spheres - see README (no
     # lanelet2 map yet to look up each signal group's real location).
+    # All groups sit at this x/z (the intersection stop line ahead of
+    # ego) and are spread out across y, one per lane, lane_spacing_m
+    # apart and centered on traffic_light_y - see marker_builder.py.
     traffic_light_frame_id: "map"
     traffic_light_x: 10.0
     traffic_light_y: 0.0
     traffic_light_z: 3.0
+    traffic_light_lane_spacing_m: 4.0

@@ -104,19 +104,26 @@ def build_object_markers(objects_msg, ns='perception_objects', lifetime_s=0.5):
 
 
 def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic_lights',
-                                 lifetime_s=0.5):
+                                 lifetime_s=0.5, lane_spacing_m=4.0):
     """One SPHERE per signal group plus a TEXT label ("group N: STATE")
-    above it, spread out along x so groups don't overlap - an
-    intersection normally has several independent signal groups (e.g. one
-    per direction), so more than one sphere at once is expected, not a
-    bug; the label disambiguates which is which. Position is a fixed
-    placeholder, not each group's real location - TrafficLightGroupArray
-    only carries a group id (it expects the real location to come from a
-    lanelet2 map's regulatory elements, which this project doesn't have
-    yet). See README."""
+    above it. All groups sit at the same x/z (the intersection's stop
+    line, straight ahead of ego) and are laid out one per lane: sorted by
+    group id, spread along y and centered on position_xyz's y, spacing_m
+    apart - e.g. 2 groups become left-lane/right-lane instead of two
+    spheres stacked with no visible rule. An intersection normally has
+    several independent signal groups (e.g. one per direction), so more
+    than one sphere at once is expected, not a bug.
+
+    Position is still a fixed placeholder, not each group's real
+    location - TrafficLightGroupArray only carries a group id (it expects
+    the real location to come from a lanelet2 map's regulatory elements,
+    which this project doesn't have yet). See README."""
     markers = []
     x, y, z = position_xyz
-    for i, group in enumerate(signals_msg.traffic_light_groups):
+    groups = sorted(signals_msg.traffic_light_groups, key=lambda g: g.traffic_light_group_id)
+    n = len(groups)
+
+    for i, group in enumerate(groups):
         color = _UNKNOWN_TRAFFIC_LIGHT_COLOR
         state_name = 'UNKNOWN'
         for element in group.elements:
@@ -125,7 +132,7 @@ def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic
                 state_name = _TRAFFIC_LIGHT_STATE_NAME[element.color]
                 break
 
-        marker_x = x + i * 1.5
+        marker_y = y + (i - (n - 1) / 2.0) * lane_spacing_m
 
         marker = Marker()
         marker.header.frame_id = frame_id
@@ -134,8 +141,8 @@ def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic
         marker.id = group.traffic_light_group_id
         marker.type = Marker.SPHERE
         marker.action = Marker.ADD
-        marker.pose.position.x = marker_x
-        marker.pose.position.y = y
+        marker.pose.position.x = x
+        marker.pose.position.y = marker_y
         marker.pose.position.z = z
         marker.pose.orientation.w = 1.0
         marker.scale.x = marker.scale.y = marker.scale.z = 0.8
@@ -150,8 +157,8 @@ def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic
         text.id = group.traffic_light_group_id
         text.type = Marker.TEXT_VIEW_FACING
         text.action = Marker.ADD
-        text.pose.position.x = marker_x
-        text.pose.position.y = y
+        text.pose.position.x = x
+        text.pose.position.y = marker_y
         text.pose.position.z = z + 0.7
         text.pose.orientation.w = 1.0
         text.scale.z = 0.5

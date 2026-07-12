@@ -18,7 +18,12 @@
    타입·confidence를 보여주는 TEXT 마커를 생성. 분류(보행자/차량/hazard 등)
    별로 색을 다르게 칠함.
 2. `/perception/traffic_light_recognition/traffic_signals`를 구독해서 신호
-   그룹마다 SPHERE 마커 하나씩 생성, RED/YELLOW/GREEN에 따라 색칠.
+   그룹마다 SPHERE 마커 + "group N: STATE" TEXT 라벨을 생성, RED/YELLOW/GREEN에
+   따라 색칠. **배치 규칙**: 모든 그룹이 같은 x/z(자차 앞 정지선 거리)에 있고,
+   group id 기준 정렬 후 y축으로 `traffic_light_lane_spacing_m`(기본 4m)씩
+   떨어뜨려 `traffic_light_y`를 중심으로 배치 - 즉 그룹마다 자기 차선 슬롯이
+   있고, 순서가 항상 group id 기준으로 고정됨 (메시지 순서가 바뀌어도 위치
+   안 바뀜).
 3. 두 마커 모두 `marker_lifetime_s`(기본 0.5초)로 짧은 lifetime을 둬서,
    다음 프레임에 사라진 객체/신호 id를 일일이 DELETE 액션으로 지우지 않고
    자동 만료되게 함.

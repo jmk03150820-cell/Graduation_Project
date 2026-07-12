@@ -45,6 +45,7 @@ class PerceptionMarkersNode(Node):
             'traffic_light_x': 10.0,
             'traffic_light_y': 0.0,
             'traffic_light_z': 3.0,
+            'traffic_light_lane_spacing_m': 4.0,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -54,6 +55,7 @@ class PerceptionMarkersNode(Node):
             'input_objects_topic', 'input_traffic_signals_topic',
             'object_markers_topic', 'signal_markers_topic', 'marker_lifetime_s',
             'traffic_light_frame_id', 'traffic_light_x', 'traffic_light_y', 'traffic_light_z',
+            'traffic_light_lane_spacing_m',
         ]
         return {name: self.get_parameter(name).value for name in names}
 
@@ -66,7 +68,8 @@ class PerceptionMarkersNode(Node):
         markers = build_traffic_light_markers(
             msg, p['traffic_light_frame_id'],
             (p['traffic_light_x'], p['traffic_light_y'], p['traffic_light_z']),
-            lifetime_s=p['marker_lifetime_s'])
+            lifetime_s=p['marker_lifetime_s'],
+            lane_spacing_m=p['traffic_light_lane_spacing_m'])
         self.pub_signal_markers.publish(markers)
 
 
