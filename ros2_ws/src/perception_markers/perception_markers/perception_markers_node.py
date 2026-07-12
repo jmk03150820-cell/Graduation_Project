@@ -6,6 +6,7 @@ from visualization_msgs.msg import MarkerArray
 from perception_markers.marker_builder import (
     build_lane_vehicle_markers,
     build_object_markers,
+    build_road_markers,
     build_traffic_light_markers,
 )
 
@@ -33,6 +34,7 @@ class PerceptionMarkersNode(Node):
         self.pub_signal_markers = self.create_publisher(MarkerArray, p['signal_markers_topic'], 10)
         self.pub_lane_vehicle_markers = self.create_publisher(
             MarkerArray, p['lane_vehicle_markers_topic'], 10)
+        self.pub_road_markers = self.create_publisher(MarkerArray, p['road_markers_topic'], 10)
 
         self.get_logger().info(
             f"perception_markers_node started: "
@@ -54,6 +56,9 @@ class PerceptionMarkersNode(Node):
             'traffic_light_lane_spacing_m': 4.0,
             'lane_vehicle_markers_topic': '/perception/traffic_light_recognition/lane_vehicles',
             'lane_vehicle_approach_distance_m': 6.0,
+            'road_markers_topic': '/perception/traffic_light_recognition/road',
+            'road_start_x': -10.0,
+            'road_end_x': 30.0,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -64,7 +69,8 @@ class PerceptionMarkersNode(Node):
             'object_markers_topic', 'signal_markers_topic', 'marker_lifetime_s',
             'traffic_light_frame_id', 'traffic_light_x', 'traffic_light_y', 'traffic_light_z',
             'traffic_light_lane_spacing_m', 'lane_vehicle_markers_topic',
-            'lane_vehicle_approach_distance_m',
+            'lane_vehicle_approach_distance_m', 'road_markers_topic',
+            'road_start_x', 'road_end_x',
         ]
         return {name: self.get_parameter(name).value for name in names}
 
@@ -88,6 +94,15 @@ class PerceptionMarkersNode(Node):
             approach_distance_m=p['lane_vehicle_approach_distance_m'],
             lifetime_s=p['marker_lifetime_s'])
         self.pub_lane_vehicle_markers.publish(lane_vehicle_markers)
+
+        num_lanes = len(msg.traffic_light_groups)
+        if num_lanes > 0:
+            road_markers = build_road_markers(
+                p['traffic_light_frame_id'], msg.stamp, position, num_lanes,
+                lane_spacing_m=p['traffic_light_lane_spacing_m'],
+                road_start_x=p['road_start_x'], road_end_x=p['road_end_x'],
+                lifetime_s=p['marker_lifetime_s'])
+            self.pub_road_markers.publish(road_markers)
 
 
 def main(args=None):

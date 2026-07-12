@@ -32,7 +32,13 @@
    바로 눈에 보인다. 진짜 자차(`fake_vehicle_node`의 ego marker)는 여러
    차선 중 가장 위험한 신호 하나만 보고 판단하므로 이 데모 차들과는 다르게
    움직일 수 있음 - 의도된 차이.
-4. 마커 전부 `marker_lifetime_s`(기본 0.5초)로 짧은 lifetime을 둬서,
+4. 신호 그룹 개수만큼 **도로 마커**(`/perception/traffic_light_recognition/road`)도
+   발행 - 차선 경계선(흰색) n-1개 + 중앙선(노란색, 차선이 짝수일 때) +
+   정지선(흰색, 신호등과 같은 x). `build_traffic_light_markers`/
+   `build_lane_vehicle_markers`와 같은 `_lane_y` 규칙을 그대로 써서, 신호등이
+   실제로 그 차선 경계선 사이에 위치하도록 맞춰져 있음 - 마커들이 빈 공간에
+   떠 있지 않고 실제 도로 위에 있는 것처럼 보이게 함.
+5. 마커 전부 `marker_lifetime_s`(기본 0.5초)로 짧은 lifetime을 둬서,
    다음 프레임에 사라진 객체/신호 id를 일일이 DELETE 액션으로 지우지 않고
    자동 만료되게 함.
 
@@ -63,5 +69,10 @@ ros2 launch perception_markers perception_markers.launch.py &
 
 Foxglove/RViz 3D 패널의 Topics 목록에 `/perception/object_recognition/detection/objects/markers`,
 `/perception/traffic_light_recognition/traffic_signals/markers`,
-`/perception/traffic_light_recognition/lane_vehicles`를 켜면 객체 박스,
-신호등 색, 차선별 데모 차량이 바로 보인다.
+`/perception/traffic_light_recognition/lane_vehicles`,
+`/perception/traffic_light_recognition/road`를 켜면 객체 박스, 신호등 색,
+차선별 데모 차량, 차선/정지선이 바로 보인다.
+
+**주의**: RViz에서 `.rviz` 설정 파일을 새 디스플레이 추가 후에도 이미 열려있는
+창은 자동으로 반영되지 않는다 - 창을 닫고 `rviz2 -d 설정파일.rviz`로 다시
+열어야 새 토픽(`Road` 등)이 보인다.

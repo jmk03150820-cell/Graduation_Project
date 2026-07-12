@@ -6,6 +6,7 @@ perception_markers_node:
     object_markers_topic: "/perception/object_recognition/detection/objects/markers"
     signal_markers_topic: "/perception/traffic_light_recognition/traffic_signals/markers"
     lane_vehicle_markers_topic: "/perception/traffic_light_recognition/lane_vehicles"
+    road_markers_topic: "/perception/traffic_light_recognition/road"
 
     marker_lifetime_s: 0.5
 
@@ -25,3 +26,9 @@ perception_markers_node:
     # (independent of the real ego vehicle's combined decision) - see
     # README and build_lane_vehicle_markers().
     lane_vehicle_approach_distance_m: 6.0
+
+    # Flat lane-divider/edge lines + a stop line at the intersection, so
+    # the lanes/stop-line implied by the markers above are actually drawn
+    # instead of just being positions floating in empty space.
+    road_start_x: -10.0
+    road_end_x: 30.0

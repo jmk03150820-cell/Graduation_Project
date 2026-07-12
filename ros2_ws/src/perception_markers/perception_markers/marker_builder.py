@@ -226,3 +226,65 @@ def build_lane_vehicle_markers(signals_msg, frame_id, position_xyz, lane_spacing
         markers.append(marker)
 
     return MarkerArray(markers=markers)
+
+
+_LANE_LINE_COLOR = (1.0, 1.0, 1.0, 0.9)
+_CENTER_LINE_COLOR = (1.0, 0.85, 0.1, 0.9)
+_STOP_LINE_COLOR = (1.0, 1.0, 1.0, 0.95)
+_LINE_WIDTH_M = 0.15
+_LINE_THICKNESS_M = 0.02
+
+
+def build_road_markers(frame_id, stamp, position_xyz, num_lanes, lane_spacing_m=4.0,
+                        road_start_x=-10.0, road_end_x=30.0, ns='road', lifetime_s=0.5):
+    """Flat CUBE markers for the road ego and the lane demo cars sit on:
+    one line per lane boundary (n+1 lines for n lanes - the middle one(s)
+    yellow like a real center line, the two outer edges white), plus one
+    white stop line across the road at the intersection's x. Static scene
+    decoration so the lanes/stop-line implied by build_traffic_light_markers
+    and build_lane_vehicle_markers are actually visible, not just implied
+    by marker positions floating in empty space."""
+    x_stop, y_center, _ = position_xyz
+    road_length = road_end_x - road_start_x
+    road_center_x = (road_start_x + road_end_x) / 2.0
+    markers = []
+
+    for i in range(num_lanes + 1):
+        line_y = y_center + (i - num_lanes / 2.0) * lane_spacing_m
+        is_center = num_lanes % 2 == 0 and i == num_lanes // 2
+
+        marker = Marker()
+        marker.header.frame_id = frame_id
+        marker.header.stamp = stamp
+        marker.ns = ns
+        marker.id = i
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        marker.pose.position.x = road_center_x
+        marker.pose.position.y = line_y
+        marker.pose.position.z = _LINE_THICKNESS_M / 2.0
+        marker.pose.orientation.w = 1.0
+        marker.scale.x, marker.scale.y, marker.scale.z = (
+            road_length, _LINE_WIDTH_M, _LINE_THICKNESS_M)
+        _set_color(marker, _CENTER_LINE_COLOR if is_center else _LANE_LINE_COLOR)
+        _set_lifetime(marker, lifetime_s)
+        markers.append(marker)
+
+    stop_line = Marker()
+    stop_line.header.frame_id = frame_id
+    stop_line.header.stamp = stamp
+    stop_line.ns = ns + '_stop_line'
+    stop_line.id = 0
+    stop_line.type = Marker.CUBE
+    stop_line.action = Marker.ADD
+    stop_line.pose.position.x = x_stop
+    stop_line.pose.position.y = y_center
+    stop_line.pose.position.z = _LINE_THICKNESS_M / 2.0
+    stop_line.pose.orientation.w = 1.0
+    stop_line.scale.x, stop_line.scale.y, stop_line.scale.z = (
+        0.3, num_lanes * lane_spacing_m + _LINE_WIDTH_M, _LINE_THICKNESS_M)
+    _set_color(stop_line, _STOP_LINE_COLOR)
+    _set_lifetime(stop_line, lifetime_s)
+    markers.append(stop_line)
+
+    return MarkerArray(markers=markers)

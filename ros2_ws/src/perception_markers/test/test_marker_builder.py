@@ -20,6 +20,7 @@ from visualization_msgs.msg import Marker
 from perception_markers.marker_builder import (
     build_lane_vehicle_markers,
     build_object_markers,
+    build_road_markers,
     build_traffic_light_markers,
 )
 
@@ -181,3 +182,39 @@ def test_lane_vehicle_markers_no_groups_gives_empty_array():
     msg = _make_signals()
     markers = build_lane_vehicle_markers(msg, 'map', (10.0, 0.0, 3.0))
     assert markers.markers == []
+
+
+def test_road_markers_two_lanes_gives_three_lines_plus_stop_line():
+    stamp = TrafficLightGroupArray().stamp
+    markers = build_road_markers('map', stamp, (10.0, 0.0, 3.0), num_lanes=2, lane_spacing_m=4.0)
+    assert len(markers.markers) == 4  # 2 edges + 1 center divider + 1 stop line
+
+
+def test_road_markers_center_line_is_yellow_edges_are_white():
+    stamp = TrafficLightGroupArray().stamp
+    markers = build_road_markers('map', stamp, (10.0, 0.0, 3.0), num_lanes=2, lane_spacing_m=4.0)
+    lane_lines = [m for m in markers.markers if m.ns == 'road']
+    center = next(m for m in lane_lines if math.isclose(m.pose.position.y, 0.0))
+    edges = [m for m in lane_lines if not math.isclose(m.pose.position.y, 0.0)]
+    assert center.color.g > center.color.b  # yellow-ish
+    for edge in edges:
+        assert math.isclose(edge.color.r, edge.color.g)  # white
+
+
+def test_road_markers_lane_lines_match_traffic_light_lane_positions():
+    stamp = TrafficLightGroupArray().stamp
+    signals = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
+    lights = build_traffic_light_markers(signals, 'map', (10.0, 0.0, 3.0), lane_spacing_m=4.0)
+    road = build_road_markers('map', stamp, (10.0, 0.0, 3.0), num_lanes=2, lane_spacing_m=4.0)
+    light_ys = sorted(m.pose.position.y for m in lights.markers if m.type == Marker.SPHERE)
+    lane_line_ys = sorted(m.pose.position.y for m in road.markers if m.ns == 'road')
+    # each light sits between two of the drawn lane lines (its own lane)
+    assert lane_line_ys[0] < light_ys[0] < lane_line_ys[1]
+    assert lane_line_ys[1] < light_ys[1] < lane_line_ys[2]
+
+
+def test_road_markers_stop_line_is_at_the_intersection_x():
+    stamp = TrafficLightGroupArray().stamp
+    markers = build_road_markers('map', stamp, (10.0, 0.0, 3.0), num_lanes=2)
+    stop_line = next(m for m in markers.markers if m.ns == 'road_stop_line')
+    assert stop_line.pose.position.x == 10.0
