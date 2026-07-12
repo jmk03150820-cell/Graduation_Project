@@ -61,6 +61,20 @@ def _set_lifetime(marker, lifetime_s):
     marker.lifetime.nanosec = int((lifetime_s - int(lifetime_s)) * 1e9)
 
 
+def _lane_y(index, count, center_y, spacing_m):
+    """Shared lane-slot rule: index 0..count-1, centered on center_y,
+    spacing_m apart. Used for both the traffic-light sphere and its demo
+    car so they always land in the same lane."""
+    return center_y + (index - (count - 1) / 2.0) * spacing_m
+
+
+def _state_name_and_color(group):
+    for element in group.elements:
+        if element.color in _TRAFFIC_LIGHT_COLOR:
+            return _TRAFFIC_LIGHT_STATE_NAME[element.color], _TRAFFIC_LIGHT_COLOR[element.color]
+    return 'UNKNOWN', _UNKNOWN_TRAFFIC_LIGHT_COLOR
+
+
 def build_object_markers(objects_msg, ns='perception_objects', lifetime_s=0.5):
     """One CUBE/CYLINDER marker per object at its actual pose/shape, plus a
     TEXT marker above it with its type and confidence, colored by
@@ -124,15 +138,8 @@ def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic
     n = len(groups)
 
     for i, group in enumerate(groups):
-        color = _UNKNOWN_TRAFFIC_LIGHT_COLOR
-        state_name = 'UNKNOWN'
-        for element in group.elements:
-            if element.color in _TRAFFIC_LIGHT_COLOR:
-                color = _TRAFFIC_LIGHT_COLOR[element.color]
-                state_name = _TRAFFIC_LIGHT_STATE_NAME[element.color]
-                break
-
-        marker_y = y + (i - (n - 1) / 2.0) * lane_spacing_m
+        state_name, color = _state_name_and_color(group)
+        marker_y = _lane_y(i, n, y, lane_spacing_m)
 
         marker = Marker()
         marker.header.frame_id = frame_id
@@ -166,5 +173,56 @@ def build_traffic_light_markers(signals_msg, frame_id, position_xyz, ns='traffic
         text.text = f'group {group.traffic_light_group_id}: {state_name}'
         _set_lifetime(text, lifetime_s)
         markers.append(text)
+
+    return MarkerArray(markers=markers)
+
+
+# Car-sized box, matching fake_vehicle_node's ego marker dimensions.
+_LANE_CAR_SCALE = (4.5, 1.9, 1.8)
+_LANE_CAR_STOPPED_COLOR = (1.0, 0.15, 0.15, 0.9)
+_LANE_CAR_MOVING_COLOR = (0.15, 0.85, 0.25, 0.9)
+_LANE_CAR_UNKNOWN_COLOR = (0.6, 0.6, 0.6, 0.7)
+
+
+def build_lane_vehicle_markers(signals_msg, frame_id, position_xyz, lane_spacing_m=4.0,
+                                approach_distance_m=6.0, ns='lane_vehicles', lifetime_s=0.5):
+    """One demo car per signal group, parked in that group's own lane
+    (same _lane_y rule as build_traffic_light_markers) just behind the
+    stop line - colored red for RED/YELLOW (stopped) or green for GREEN
+    (would be going), directly from that lane's own state only. This is
+    an illustrative, independent-per-lane demo: it does NOT go through
+    module_integrate/r2lp1_planning (which correctly reacts to only the
+    single worst state across all lanes for one real ego vehicle) - it
+    exists purely so each light's effect is visually unambiguous."""
+    markers = []
+    x, y, z = position_xyz
+    groups = sorted(signals_msg.traffic_light_groups, key=lambda g: g.traffic_light_group_id)
+    n = len(groups)
+    car_z = _LANE_CAR_SCALE[2] / 2.0
+
+    for i, group in enumerate(groups):
+        state_name, _ = _state_name_and_color(group)
+        if state_name == 'GREEN':
+            color = _LANE_CAR_MOVING_COLOR
+        elif state_name in ('RED', 'YELLOW'):
+            color = _LANE_CAR_STOPPED_COLOR
+        else:
+            color = _LANE_CAR_UNKNOWN_COLOR
+
+        marker = Marker()
+        marker.header.frame_id = frame_id
+        marker.header.stamp = signals_msg.stamp
+        marker.ns = ns
+        marker.id = group.traffic_light_group_id
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        marker.pose.position.x = x - approach_distance_m
+        marker.pose.position.y = _lane_y(i, n, y, lane_spacing_m)
+        marker.pose.position.z = car_z
+        marker.pose.orientation.w = 1.0
+        marker.scale.x, marker.scale.y, marker.scale.z = _LANE_CAR_SCALE
+        _set_color(marker, color)
+        _set_lifetime(marker, lifetime_s)
+        markers.append(marker)
 
     return MarkerArray(markers=markers)

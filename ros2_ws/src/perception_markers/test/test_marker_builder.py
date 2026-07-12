@@ -17,7 +17,11 @@ from autoware_perception_msgs.msg import (
 )
 from visualization_msgs.msg import Marker
 
-from perception_markers.marker_builder import build_object_markers, build_traffic_light_markers
+from perception_markers.marker_builder import (
+    build_lane_vehicle_markers,
+    build_object_markers,
+    build_traffic_light_markers,
+)
 
 
 def _make_object(x, y, label=ObjectClassification.PEDESTRIAN, shape_type=Shape.BOUNDING_BOX):
@@ -141,4 +145,39 @@ def test_build_traffic_light_markers_labels_include_group_id_and_state():
 def test_build_traffic_light_markers_no_groups_gives_empty_array():
     msg = _make_signals()
     markers = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0))
+    assert markers.markers == []
+
+
+def test_lane_vehicle_markers_one_per_group():
+    msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
+    markers = build_lane_vehicle_markers(msg, 'map', (10.0, 0.0, 3.0))
+    assert len(markers.markers) == 2
+
+
+def test_lane_vehicle_markers_share_lane_y_with_their_own_light():
+    msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
+    lights = build_traffic_light_markers(msg, 'map', (10.0, 0.0, 3.0), lane_spacing_m=4.0)
+    cars = build_lane_vehicle_markers(msg, 'map', (10.0, 0.0, 3.0), lane_spacing_m=4.0)
+    light_y_by_id = {m.id: m.pose.position.y for m in lights.markers if m.type == Marker.SPHERE}
+    for car in cars.markers:
+        assert math.isclose(car.pose.position.y, light_y_by_id[car.id])
+
+
+def test_lane_vehicle_markers_are_behind_the_stop_line():
+    msg = _make_signals(TrafficLightElement.RED)
+    markers = build_lane_vehicle_markers(msg, 'map', (10.0, 0.0, 3.0), approach_distance_m=6.0)
+    assert markers.markers[0].pose.position.x == 4.0
+
+
+def test_lane_vehicle_markers_red_is_stopped_green_is_moving():
+    msg = _make_signals(TrafficLightElement.RED, TrafficLightElement.GREEN)
+    markers = build_lane_vehicle_markers(msg, 'map', (10.0, 0.0, 3.0))
+    cars = {m.id: m for m in markers.markers}
+    assert cars[0].color.r > cars[0].color.g  # red group -> reddish car
+    assert cars[1].color.g > cars[1].color.r  # green group -> greenish car
+
+
+def test_lane_vehicle_markers_no_groups_gives_empty_array():
+    msg = _make_signals()
+    markers = build_lane_vehicle_markers(msg, 'map', (10.0, 0.0, 3.0))
     assert markers.markers == []

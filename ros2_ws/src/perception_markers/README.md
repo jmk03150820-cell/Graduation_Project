@@ -24,7 +24,15 @@
    떨어뜨려 `traffic_light_y`를 중심으로 배치 - 즉 그룹마다 자기 차선 슬롯이
    있고, 순서가 항상 group id 기준으로 고정됨 (메시지 순서가 바뀌어도 위치
    안 바뀜).
-3. 두 마커 모두 `marker_lifetime_s`(기본 0.5초)로 짧은 lifetime을 둬서,
+3. 신호 그룹마다 **자기 차선에 주차된 데모용 차 마커**(`/perception/traffic_light_recognition/lane_vehicles`)도 함께 발행 -
+   그 차선 신호가 RED/YELLOW면 빨간 차, GREEN이면 초록 차. 이건 실제
+   `module_integrate`/`r2lp1_planning`(여러 차선 중 가장 위험한 상태 하나로
+   자차 한 대를 판단)을 거치지 않는 **순수 시각화용 독립 데모**라서, "신호
+   색깔 = 그 차선 차량 상태"가 파이프라인 지연이나 안전 로직 개입 없이
+   바로 눈에 보인다. 진짜 자차(`fake_vehicle_node`의 ego marker)는 여러
+   차선 중 가장 위험한 신호 하나만 보고 판단하므로 이 데모 차들과는 다르게
+   움직일 수 있음 - 의도된 차이.
+4. 마커 전부 `marker_lifetime_s`(기본 0.5초)로 짧은 lifetime을 둬서,
    다음 프레임에 사라진 객체/신호 id를 일일이 DELETE 액션으로 지우지 않고
    자동 만료되게 함.
 
@@ -53,6 +61,7 @@ python3 -m pytest test/test_marker_builder.py -v
 ros2 launch perception_markers perception_markers.launch.py &
 ```
 
-Foxglove에서 3D 패널의 Topics 목록에 `/perception/object_recognition/detection/objects/markers`,
-`/perception/traffic_light_recognition/traffic_signals/markers`를 켜면
-객체 박스와 신호등 색이 바로 보인다.
+Foxglove/RViz 3D 패널의 Topics 목록에 `/perception/object_recognition/detection/objects/markers`,
+`/perception/traffic_light_recognition/traffic_signals/markers`,
+`/perception/traffic_light_recognition/lane_vehicles`를 켜면 객체 박스,
+신호등 색, 차선별 데모 차량이 바로 보인다.

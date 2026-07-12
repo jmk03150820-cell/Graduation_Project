@@ -5,6 +5,7 @@ perception_markers_node:
 
     object_markers_topic: "/perception/object_recognition/detection/objects/markers"
     signal_markers_topic: "/perception/traffic_light_recognition/traffic_signals/markers"
+    lane_vehicle_markers_topic: "/perception/traffic_light_recognition/lane_vehicles"
 
     marker_lifetime_s: 0.5
 
@@ -18,3 +19,9 @@ perception_markers_node:
     traffic_light_y: 0.0
     traffic_light_z: 3.0
     traffic_light_lane_spacing_m: 4.0
+
+    # One demo car per lane, parked approach_distance_m behind its own
+    # light's stop line, colored red/green by that lane's own state only
+    # (independent of the real ego vehicle's combined decision) - see
+    # README and build_lane_vehicle_markers().
+    lane_vehicle_approach_distance_m: 6.0
