@@ -1,0 +1,19 @@
+r2lp1_planning_node:
+  ros__parameters:
+    # Input: module_integrate_node's synced master JSON (placeholder schema,
+    # see README - module_integrate_node doesn't exist yet)
+    input_topic: "/integrate/chameleon_in"
+
+    # Output (Phase 1 simplified control command)
+    output_topic: "/autoware/control"
+    log_topic: "/system/log"
+
+    decision_rate_hz: 10.0
+    data_stale_timeout_s: 1.0
+
+    target_speed_mps: 5.0
+    min_speed_mps: 1.0
+    emergency_stop_distance_m: 5.0
+    slow_down_distance_m: 15.0
+    steering_gain: 0.02
+    max_steer_angular_z: 0.5

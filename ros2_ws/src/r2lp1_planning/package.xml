@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>r2lp1_planning</name>
+  <version>0.0.1</version>
+  <description>
+    Phase 1 (if-else) stand-in for the reinforcement-learning planner:
+    subscribes to module_integrate_node's synced /integrate/chameleon_in
+    JSON and publishes a target speed/steering Twist on /autoware/control.
+    Decision logic is isolated from ROS plumbing so Phase 2 can swap in an
+    RL policy without touching the node.
+  </description>
+  <maintainer email="jmk03150820@gmail.com">jmk</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
