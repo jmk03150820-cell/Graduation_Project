@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>system_logger</name>
+  <version>0.0.1</version>
+  <description>
+    Terminal sink for /system/log: every pipeline node (module_integrate_node,
+    r2lp1_planning_node, ...) publishes its own JSON status/metric line here
+    instead of managing its own log file. Parses each line, echoes a
+    human-readable version to the console (and optionally a file), and
+    periodically logs a rolling summary (per-node event counts, worst-case
+    latency/sync-error fields) so pipeline health can be read off one topic.
+  </description>
+  <maintainer email="jmk03150820@gmail.com">jmk</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

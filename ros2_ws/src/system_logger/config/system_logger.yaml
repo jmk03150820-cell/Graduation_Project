@@ -1,0 +1,13 @@
+system_logger_node:
+  ros__parameters:
+    # Input: shared status/metric stream published by every pipeline node
+    # (module_integrate_node, r2lp1_planning_node, ...) - see each node's
+    # README for its own log payload fields.
+    log_topic: "/system/log"
+
+    # How often to log a rolling summary (per-node event counts, worst-case
+    # *_ms fields such as sync_error_ms/latency_ms) instead of only raw lines.
+    summary_interval_s: 30.0
+
+    # Optional: also append human-readable lines to this file. Empty = console only.
+    log_file_path: ""
