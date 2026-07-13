@@ -24,6 +24,12 @@ Phase 1은 강화학습 이전 단계로, 단순 if-else 로직으로 파이프�
 판단 로직(`decision_logic.py`)은 rclpy 의존성이 없어 ROS 없이 단위테스트 가능하고,
 Phase 2에서 강화학습 정책으로 교체할 때도 노드의 ROS 배선은 그대로 둘 수 있다.
 
+매 판단마다 `/system/log`에 어떤 규칙이 발동했는지(`event`)뿐 아니라 **실제로
+`/autoware/control`에 낸 출력값**(`output_linear_x`, `output_angular_z`)과
+그 판단의 근거가 된 입력(`traffic_light_state`, `hazard_distance_m`)까지 같이
+남긴다 - 나중에 "그때 왜 멈췄는지"를 `/autoware/control`과 따로 대조하지 않고
+로그 한 줄로 재구성할 수 있게.
+
 ```bash
 python3 -m pytest test/test_decision_logic.py -v
 ```

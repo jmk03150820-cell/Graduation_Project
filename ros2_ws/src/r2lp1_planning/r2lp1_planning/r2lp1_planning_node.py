@@ -71,7 +71,7 @@ class R2lp1PlanningNode(Node):
             self._last_received_time = time.time()
         except (ValueError, json.JSONDecodeError) as e:
             self.get_logger().warn(f'Bad chameleon_in JSON: {e}')
-            self._publish_log('parse_error', None, str(e))
+            self._publish_log({'event': 'parse_error', 'error': str(e)})
 
     def _on_decision_timer(self):
         p = self._p
@@ -92,17 +92,28 @@ class R2lp1PlanningNode(Node):
         latency_ms = (
             (now - self._last_received_time) * 1000.0
             if self._last_received_time is not None else None)
-        self._publish_log(decision.event, latency_ms, decision.error)
 
-    def _publish_log(self, event, latency_ms, error):
-        msg = String()
-        msg.data = json.dumps({
-            'node': 'r2lp1_planning_node',
-            'event': event,
+        # Log the actual output (target speed/steer) alongside the inputs
+        # that justify it (traffic light state, hazard distance), so a
+        # single /system/log entry shows "why -> what it did" without
+        # needing to separately correlate with /autoware/control.
+        traffic_light_state = (data or {}).get('traffic_light', {}).get('state')
+        hazard = (data or {}).get('hazard') or {}
+        self._publish_log({
+            'event': decision.event,
+            'output_linear_x': decision.linear_x,
+            'output_angular_z': decision.angular_z,
+            'traffic_light_state': traffic_light_state,
+            'hazard_distance_m': hazard.get('distance_m'),
             'latency_ms': latency_ms,
-            'error': error,
-            'timestamp': time.time(),
+            'error': decision.error,
         })
+
+    def _publish_log(self, fields):
+        msg = String()
+        payload = {'node': 'r2lp1_planning_node', 'timestamp': time.time()}
+        payload.update(fields)
+        msg.data = json.dumps(payload)
         self.pub_log.publish(msg)
 
 

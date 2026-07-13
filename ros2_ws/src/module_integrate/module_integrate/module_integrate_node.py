@@ -119,15 +119,21 @@ class ModuleIntegrateNode(Node):
         msg.data = json.dumps(payload)
         self.pub_chameleon.publish(msg)
 
-        self._publish_log(sync_error_ms)
+        self._publish_log(sync_error_ms, payload)
 
-    def _publish_log(self, sync_error_ms):
+    def _publish_log(self, sync_error_ms, payload):
+        # Log the actual chameleon_in output (not just sync timing), so a
+        # single /system/log entry shows what this node handed to
+        # r2lp1_planning_node, not just how in-sync the inputs were.
+        hazard = payload.get('hazard') or {}
         msg = String()
         msg.data = json.dumps({
             'node': 'module_integrate_node',
             'event': 'sync',
             'sync_error_ms': sync_error_ms,
             'max_sync_error_ms': self._max_sync_error_ms,
+            'output_traffic_light_state': payload.get('traffic_light', {}).get('state'),
+            'output_hazard_distance_m': hazard.get('distance_m'),
             'timestamp': time.time(),
         })
         self.pub_log.publish(msg)

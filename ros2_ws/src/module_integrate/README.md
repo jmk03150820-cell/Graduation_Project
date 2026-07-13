@@ -27,7 +27,9 @@
      채택 - 신호 하나가 stale/unknown이어도 다른 신호의 RED를 가림지 않게
 3. 두 입력이 모두 fresh할 때의 시간차를 `sync_error_ms`로 계산, 지금까지의
    최댓값을 `max_sync_error_ms`로 누적해 `/system/log`에 발행 (핵심 지표:
-   센서 간 시간 동기화 최대 오차)
+   센서 간 시간 동기화 최대 오차). 이때 `chameleon_in`에 실제로 실어보낸
+   `output_traffic_light_state`/`output_hazard_distance_m`도 같이 남겨서,
+   동기화 타이밍뿐 아니라 이 노드가 무엇을 판단해 내보냈는지도 로그로 남게 함
 
 로직(`chameleon_builder.py`)은 rclpy 의존은 없지만 `autoware_perception_msgs`
 타입은 사용하므로(= `cits_integration/converters.py`와 동일한 패턴), ROS
