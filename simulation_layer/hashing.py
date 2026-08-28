@@ -125,6 +125,15 @@ def _predicted_path(w: CanonicalWriter, p: m.PredictedPath) -> None:
     w.sequence(p.points, _prediction_point, 32)
 
 
+def _software_version(w: CanonicalWriter, sv: m.SoftwareVersion) -> None:
+    w.u8(sv.component_id)
+    w.u16(sv.semantic_version.major).u16(sv.semantic_version.minor).u16(sv.semantic_version.patch)
+    w.bounded_id(sv.git_commit).bounded_id(sv.build_id)
+    w.bool8(sv.image_digest.has_value)
+    if sv.image_digest.has_value:
+        w.hash256(sv.image_digest.value)
+
+
 def _command_counts(w: CanonicalWriter, c: m.CommandCounts) -> None:
     w.u16(c.expected_ego).u16(c.received_ego).u16(c.valid_ego).u16(c.failed_ego)
     w.u32(c.expected_traffic).u32(c.received_traffic).u32(c.valid_traffic).u32(c.failed_traffic)
@@ -236,3 +245,11 @@ def frame_complete_ack_hash(msg: m.FrameCompleteAck) -> bytes:
         w.uuid128(msg.decision_id).u64(msg.state_tick_id).hash256(msg.applied_snapshot_hash)
         w.u8(msg.ack_status).u16(msg.reason_code)
     return sha256(payload_bytes(m.FRAME_COMPLETE_ACK, body))
+
+
+def component_ready_hash(msg: m.ComponentReady) -> bytes:
+    def body(w: CanonicalWriter) -> None:
+        w.hash256(msg.manifest_hash).u8(msg.ready_status).hash256(msg.capability_digest)
+        _software_version(w, msg.software_version)
+        w.sequence(msg.reason_codes, lambda ww, v: ww.u16(v), 32)
+    return sha256(payload_bytes(m.COMPONENT_READY, body))
