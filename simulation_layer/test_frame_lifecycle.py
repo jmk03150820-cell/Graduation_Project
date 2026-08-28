@@ -433,10 +433,34 @@ def test_new_run_starts_clean_and_rejects_old_epoch():
     layer2.bootstrap()
     assert by_channel(published2, "world_state")[0].state_tick_id == 0
 
+    # native frame tracking도 새로 캡처됨 — run 1에서 이미 1까지 간 backend를 재사용해도
+    # bootstrap()이 그 시점 값을 다시 기준점으로 잡아 "+1 정확히" 체크가 run 2 기준으로 리셋됨
+    assert backend.native_frame_id() == "0", "backend.reset()이 native counter를 안 되돌림"
+    assert layer2._native_frame_before == 0
+
     # 이전 epoch(1)의 메시지가 새 run(epoch 2)에 오면 EPOCH_MISMATCH 거부 (§8.4)
     layer2.on_ego_control(old_ego_cmd)
     assert layer2.ego_slot is None
     assert layer2.events[-1]["reason_code"] == m.EPOCH_MISMATCH
+
+    # run 2가 native_frame_id 0에서 진짜로 다시 tick 가능한지(캐리오버 없이) —
+    # 새 epoch에 맞는 메시지를 헤더까지 다시 만들어서 끝까지 진행
+    ws0b = by_channel(published2, "world_state")[0]
+    obs0b = by_channel(published2, "observation")[0]
+    ego2 = mock_ego_command(obs0b)
+    ego2.header.run_epoch = EPOCH + 1
+    ego2.header.payload_hash = hashing.ego_control_command_hash(ego2)
+    npc2 = mock_npc_batch(ws0b)
+    npc2.header.run_epoch = EPOCH + 1
+    npc2.header.payload_hash = hashing.npc_control_batch_hash(npc2)
+    layer2.on_ego_control(ego2)
+    layer2.on_npc_batch(npc2)
+    ready2 = by_channel(published2, "command_ready")[0]
+    adv2 = mock_advance(ready2, uuid.uuid4().bytes)
+    adv2.header.run_epoch = EPOCH + 1
+    adv2.header.payload_hash = hashing.advance_frame_hash(adv2)
+    layer2.on_advance_frame(adv2)
+    assert backend.native_frame_id() == "1", "run 2의 native step이 0->1이 아님(리셋 실패)"
 
 
 def test_capability_digest_rule():
@@ -570,8 +594,9 @@ TESTS = [
      "simulator_capability_bytes()가 소유(is 비교+경로), backend.py엔 CanonicalWriter 인코딩 "
      "호출이 하나도 없음(값만 전달) / common encoder를 바꿔치기하면 digest가 자동 위임"),
     (test_new_run_starts_clean_and_rejects_old_epoch,
-     "새 Run(새 epoch) = 새 인스턴스로 snapshot/dedup/decision_cache/ticked 전부 초기화 / "
-     "이전 epoch 메시지는 EPOCH_MISMATCH 거부"),
+     "새 Run(새 epoch) = 새 인스턴스로 snapshot/dedup/decision_cache/ticked/native_frame_before "
+     "전부 초기화 / 이전 epoch 메시지는 EPOCH_MISMATCH 거부 / 새 epoch 메시지로는 native_frame_id가 "
+     "0->1로 진짜 다시 시작(캐리오버 없음)까지 끝까지 진행해 확인"),
     (test_import_boundaries,
      "import carla는 carla_backend.py에만 / import metadrive는 metadrive_backend.py에만 / "
      "rclpy·avva_interfaces는 ROS2 binding 파일에만"),
