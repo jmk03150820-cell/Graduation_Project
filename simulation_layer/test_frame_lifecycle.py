@@ -337,61 +337,62 @@ def test_capability_and_config_gates():
 
 
 def test_encoder_provenance_and_swap_seam():
-    """capability encoder의 출처·단일성·교체 가능성을 코드로 증명.
+    """capability_hash 아키텍처가 실제로 common/layer 분리인지 코드로 증명
+    (capability_digest_rule.md §3: "hash domain과 capability 전용 encoder는 분리").
 
-    1) 바이트 프리미티브(CanonicalWriter/sha256)가 Simulator Layer 사본이 아니라
-       common 계약 번들(interfaces/generated/python/avva_hash_v1.py)의 바로 그
-       객체인지 — 동일성(is) 비교 + 실제 파일 경로 확인
-    2) capability encoder 정의 지점이 backend.py 한 곳뿐인지 — 패키지 전체 스캔
-    3) common encoder 배포 시 교체 seam이 실제로 동작하는지 — 가짜 common encoder로
-       위임시켰을 때 digest 파이프라인 전체가 그걸 타는지 확인
+    1) domain 규칙(CAPABILITY_PREFIX, prefix+wrap을 하는 capability_bytes())이
+       Simulator Layer 사본이 아니라 common 계약 번들(avva_hash_v1.py)에 정의돼
+       있는지 — 동일성(is) 비교 + 실제 파일 경로 확인. backend.py에는 그 이름들이
+       재정의돼 있으면 안 됨(진짜 wrapper인지 확인).
+    2) SimulatorCapability 필드 인코딩(_encode_capability)은 backend.py 한 곳에만
+       있는지 — 패키지 전체 스캔 (레이어별 구조체가 다르니 이건 layer-local이 맞음)
+    3) common의 capability_bytes()를 바꿔치기하면 backend.py의 digest 파이프라인이
+       자동으로 그걸 타는지 — "hash domain은 common이 소유, layer는 위임만" 증명
     """
     import pathlib
     import avva_hash_v1
     from simulation_layer import backend
 
-    # 1) 프리미티브 출처: import된 객체가 common 모듈의 그 객체와 동일(is)해야 함
-    assert backend.CanonicalWriter is avva_hash_v1.CanonicalWriter, \
-        "backend가 common CanonicalWriter가 아닌 사본을 씀"
-    assert backend.sha256 is avva_hash_v1.sha256
+    # 1) domain 규칙 출처: CAPABILITY_PREFIX/capability_bytes는 common에만 있고
+    #    backend가 쓰는 것도 바로 그 common 객체(사본 아님)
     common_path = pathlib.Path(avva_hash_v1.__file__).resolve()
     assert "interfaces" in common_path.parts and "generated" in common_path.parts, \
         f"avva_hash_v1이 계약 번들 밖에서 로드됨: {common_path}"
-
-    # 2) 정의 지점 단일성: capability encoder/프리픽스 정의가 backend.py에만 존재
+    assert backend.capability_bytes is avva_hash_v1.capability_bytes, \
+        "backend가 common capability_bytes가 아닌 사본을 씀"
+    assert backend.sha256 is avva_hash_v1.sha256
     pkg = pathlib.Path(backend.__file__).parent
-    encoder_definers, prefix_definers = [], []
     for py in pkg.glob("*.py"):
         for line in py.read_text(encoding="utf-8").splitlines():
-            # 실제 모듈 레벨 정의만 (문자열 리터럴 안 언급은 제외)
-            if line.startswith("def capability_canonical_bytes") or line.startswith("def capability_digest"):
-                if py.name not in encoder_definers:
-                    encoder_definers.append(py.name)
-            if line.startswith("CAPABILITY_PREFIX ="):
-                if py.name not in prefix_definers:
-                    prefix_definers.append(py.name)
-    assert encoder_definers == ["backend.py"], \
-        f"encoder가 여러 곳에 정의됨(중복 구현 금지): {encoder_definers}"
-    assert prefix_definers == ["backend.py"], \
-        f"domain prefix가 여러 곳에 정의됨: {prefix_definers}"
+            assert not line.startswith("CAPABILITY_PREFIX ="), \
+                f"{py.name}: domain prefix가 layer 쪽에 재정의됨 — common(avva_hash_v1) 소유여야 함"
+            assert not line.startswith("def capability_bytes"), \
+                f"{py.name}: prefix+wrap 로직이 layer 쪽에 재정의됨 — common 소유여야 함"
 
-    # 3) 교체 seam: capability_canonical_bytes를 '가짜 common encoder'로 바꿔치기하면
-    #    capability_digest가 자동으로 그걸 타야 함 (= common 배포 시 한 지점 위임으로 끝)
+    # 2) 필드 인코딩(SimulatorCapability 전용)은 backend.py 한 곳뿐 —
+    #    Traffic/Ego는 자기 구조체가 다르니 각자 자기 encode_body를 가짐(§1)
+    encoder_definers = [py.name for py in pkg.glob("*.py")
+                        if any(line.startswith("def _encode_capability")
+                               for line in py.read_text(encoding="utf-8").splitlines())]
+    assert encoder_definers == ["backend.py"], \
+        f"SimulatorCapability 필드 인코딩이 여러 곳에 정의됨: {encoder_definers}"
+
+    # 3) 교체 seam: common의 capability_bytes()를 '팀이 배포한 새 common encoder'로
+    #    바꿔치기하면 backend.py의 digest가 재배포 없이 자동으로 그걸 타야 함
     cap = MockSimulatorAdapter().capabilities()
-    original = backend.capability_canonical_bytes
+    original = backend.capability_bytes
     calls: list = []
 
-    def fake_common_encoder(c):
-        calls.append(c)
-        return original(c)
+    def fake_common_capability_bytes(encode_body):
+        calls.append(encode_body)
+        return original(encode_body)
 
-    backend.capability_canonical_bytes = fake_common_encoder
+    backend.capability_bytes = fake_common_capability_bytes
     try:
         d = backend.capability_digest(cap)
-        assert calls == [cap], "digest가 교체 seam을 거치지 않음 — 한 지점 교체 불가 구조"
-        assert d == avva_hash_v1.sha256(original(cap))  # 위임 결과도 정합
+        assert len(calls) == 1, "digest가 common capability_bytes() 교체 seam을 거치지 않음"
     finally:
-        backend.capability_canonical_bytes = original
+        backend.capability_bytes = original
     assert backend.capability_digest(cap) == d  # 원복 후에도 동일 digest
 
 
@@ -438,8 +439,8 @@ def test_capability_digest_rule():
     미포함 / 무순서 list 정렬 / max_npc vs schema capacity 구분 / 공통 encoding 규칙."""
     import dataclasses
     import struct
-    from simulation_layer.backend import (CAPABILITY_PREFIX, capability_canonical_bytes,
-                                          capability_digest)
+    from avva_hash_v1 import CAPABILITY_PREFIX  # common — capability_digest_rule.md §3
+    from simulation_layer.backend import capability_canonical_bytes, capability_digest
 
     cap = MockSimulatorAdapter().capabilities()
 
@@ -560,8 +561,9 @@ TESTS = [
      "무순서 list 순서 무영향(정렬 encoding) / max_npc vs schema capacity 구분 / "
      "canonical bytes를 struct.pack으로 독립 재구성해 §4.6 규칙 바이트 대조"),
     (test_encoder_provenance_and_swap_seam,
-     "capability encoder 출처: 프리미티브가 common 번들(avva_hash_v1)의 동일 객체(is 비교+경로) / "
-     "정의 지점이 backend.py 단일 / 가짜 common encoder로 바꿔치기 시 digest가 자동 위임(교체 seam 증명)"),
+     "capability_hash 아키텍처: CAPABILITY_PREFIX+capability_bytes(prefix+wrap)는 common "
+     "(avva_hash_v1)에만 있고 backend.py는 그 동일 객체를 씀(is 비교+경로) / SimulatorCapability "
+     "필드 인코딩만 backend.py 단일 정의 / common capability_bytes()를 바꿔치기하면 digest가 자동 위임"),
     (test_new_run_starts_clean_and_rejects_old_epoch,
      "새 Run(새 epoch) = 새 인스턴스로 snapshot/dedup/decision_cache/ticked 전부 초기화 / "
      "이전 epoch 메시지는 EPOCH_MISMATCH 거부"),

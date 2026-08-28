@@ -17,13 +17,15 @@ from dataclasses import dataclass, field, fields as dc_fields
 from typing import Protocol
 
 import avva_phase1 as m
-from avva_hash_v1 import CanonicalWriter, sha256
+from avva_hash_v1 import capability_bytes, sha256
 
-# capability_digest_rule.md §3은 "AVVA-CAPABILITY-V1\0", 후속 공지
-# (Capability_runtrasport_readyreject.md §1)는 "AVVA-CAPABILITY\0"로 표기가 갈림.
-# 기존 공통 prefix들(AVVA-PAYLOAD-V1 등)이 전부 버전 포함이라 V1을 유지하되,
-# common capability_hash 유닛 배포 시 그쪽 값으로 확정 — 팀 확인 플래그됨.
-CAPABILITY_PREFIX = b"AVVA-CAPABILITY-V1\0"
+# capability_hash의 domain prefix·wrap 규칙(canonical_encode(ComponentCapability)
+# → SHA-256)은 avva_hash_v1.capability_bytes()(common)가 소유한다 —
+# capability_digest_rule.md §3 "hash domain과 capability 전용 encoder는 분리".
+# 이 파일은 SimulatorCapability(Simulator Layer 전용 필드)의 필드 인코딩만
+# 담당하는 wrapper다. prefix 값 자체(V1 유무)는 avva_hash_v1.CAPABILITY_PREFIX
+# 쪽에서 팀 확인 대상으로 남아있다(capability_digest_rule.md §3 "AVVA-CAPABILITY-V1\0"
+# vs Capability_runtrasport_readyreject.md §1 "AVVA-CAPABILITY\0" 표기 차이).
 
 
 @dataclass(frozen=True)
@@ -56,23 +58,22 @@ class SimulatorCapability:
         return self.validated_max_npc or self.configured_max_npc
 
 
-def capability_canonical_bytes(cap: SimulatorCapability) -> bytes:
-    """canonical byte stream (capability_digest_rule.md §3, §4.6 encoding 재사용):
-    enum=numeric(u8), int=고정폭 little-endian, bool=1byte, float=f64,
-    순서 의미 없는 sequence는 numeric 정렬 후 u32 count+원소.
-    필드 순서는 dataclass 선언 순서로 FIXED.
-    주의: 공지문은 정확한 필드 순서까지 못박지 않았으므로, common 쪽 공통
-    encoder가 배포되면 이 구현을 그것으로 교체하고 순서 일치를 확인해야 한다
-    (레이어별 임의 포맷 금지 원칙에 따라 팀 확인 플래그됨).
+def _encode_capability(w, cap: SimulatorCapability) -> None:
+    """SimulatorCapability 필드 인코딩만 — prefix/wrap은 common capability_bytes() 소관.
+    enum=numeric(u8), int=고정폭 little-endian, bool=1byte, float=f64, 순서 의미
+    없는 sequence는 numeric 정렬 후 u32 count+원소 (§4.6 재사용). 필드 순서는
+    dataclass 선언 순서로 FIXED.
     """
-    w = CanonicalWriter().bytes(CAPABILITY_PREFIX)
     w.u8(cap.component_type).u8(cap.simulator_type).u16(cap.max_ego)
     w.u32(cap.schema_max_npc).u32(cap.configured_max_npc).u32(cap.validated_max_npc)
     w.bool8(cap.supports_sync).bool8(cap.supports_async)
     w.f64(cap.supported_rate_min_hz).f64(cap.supported_rate_max_hz)
     w.sequence(sorted(cap.supported_control_modes), lambda ww, v: ww.u8(v), 16)
     assert len(dc_fields(SimulatorCapability)) == 11, "field added without updating digest"
-    return w.finish()
+
+
+def capability_canonical_bytes(cap: SimulatorCapability) -> bytes:
+    return capability_bytes(lambda w: _encode_capability(w, cap))
 
 
 def capability_digest(cap: SimulatorCapability) -> bytes:

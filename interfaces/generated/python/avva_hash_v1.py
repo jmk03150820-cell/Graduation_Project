@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable
 PAYLOAD_PREFIX = b"AVVA-PAYLOAD-V1\0"
 CONTROL_SET_PREFIX = b"AVVA-CONTROL-SET-V1\0"
 SNAPSHOT_PREFIX = b"AVVA-SNAPSHOT-V1\0"
+CAPABILITY_PREFIX = b"AVVA-CAPABILITY-V1\0"
 
 
 class CanonicalWriter:
@@ -90,6 +91,21 @@ def sha256(data: bytes) -> bytes:
 
 def payload_bytes(message_kind: int, encode_body: Callable[[CanonicalWriter], None]) -> bytes:
     w = CanonicalWriter().bytes(PAYLOAD_PREFIX).u16(message_kind)
+    encode_body(w)
+    return w.finish()
+
+
+def capability_bytes(encode_body: Callable[[CanonicalWriter], None]) -> bytes:
+    """capability_digest = SHA256(capability_bytes(...)). "AVVA-CAPABILITY-V1\\0" +
+    canonical_encode(ComponentCapability). Same shape as payload_bytes() but with
+    no message_kind — capability isn't a wire message, it's a per-component
+    descriptor. Each layer (Simulator/Traffic/Ego) supplies its own encode_body
+    for its own ComponentCapability fields; this function only owns the domain
+    prefix + primitive reuse, per capability_digest_rule.md §3: "canonical
+    primitive와 byte encoding 규칙은 기존 공통 구현을 재사용하고, hash domain과
+    capability 전용 encoder는 분리".
+    """
+    w = CanonicalWriter().bytes(CAPABILITY_PREFIX)
     encode_body(w)
     return w.finish()
 
