@@ -338,61 +338,66 @@ def test_capability_and_config_gates():
 
 def test_encoder_provenance_and_swap_seam():
     """capability_hash 아키텍처가 실제로 common/layer 분리인지 코드로 증명
-    (capability_digest_rule.md §3: "hash domain과 capability 전용 encoder는 분리").
+    (오늘 아침 공지: "필드 순서/width/enum/string/list 정렬 등 canonical byte
+    encoding 규칙은 common capability encoder가 담당, Layer는 실제 값만 구성").
 
-    1) domain 규칙(CAPABILITY_PREFIX, prefix+wrap을 하는 capability_bytes())이
-       Simulator Layer 사본이 아니라 common 계약 번들(avva_hash_v1.py)에 정의돼
-       있는지 — 동일성(is) 비교 + 실제 파일 경로 확인. backend.py에는 그 이름들이
-       재정의돼 있으면 안 됨(진짜 wrapper인지 확인).
-    2) SimulatorCapability 필드 인코딩(_encode_capability)은 backend.py 한 곳에만
-       있는지 — 패키지 전체 스캔 (레이어별 구조체가 다르니 이건 layer-local이 맞음)
-    3) common의 capability_bytes()를 바꿔치기하면 backend.py의 digest 파이프라인이
-       자동으로 그걸 타는지 — "hash domain은 common이 소유, layer는 위임만" 증명
+    1) canonical byte encoding 전체(CAPABILITY_PREFIX, 필드 순서/폭/enum/bool/
+       list 정렬을 다 아는 simulator_capability_bytes())가 Simulator Layer
+       사본이 아니라 common 계약 번들(avva_hash_v1.py)에 정의돼 있는지 —
+       동일성(is) 비교 + 실제 파일 경로 확인
+    2) backend.py 어디에도 인코딩 로직(u8/u16/u32/f64/sequence 호출)이 남아있지
+       않은지 — 있으면 "값만 구성"이 아니라 여전히 규칙을 쥐고 있다는 뜻
+    3) common의 simulator_capability_bytes()를 바꿔치기하면 backend.py의 digest
+       파이프라인이 재배포 없이 자동으로 그걸 타는지 — "규칙은 common 소유,
+       layer는 값 전달만" 증명
     """
     import pathlib
     import avva_hash_v1
     from simulation_layer import backend
 
-    # 1) domain 규칙 출처: CAPABILITY_PREFIX/capability_bytes는 common에만 있고
-    #    backend가 쓰는 것도 바로 그 common 객체(사본 아님)
+    # 1) 인코딩 규칙 출처: simulator_capability_bytes는 common에만 있고
+    #    backend가 쓰는 것도 바로 그 common 함수(사본 아님)
     common_path = pathlib.Path(avva_hash_v1.__file__).resolve()
     assert "interfaces" in common_path.parts and "generated" in common_path.parts, \
         f"avva_hash_v1이 계약 번들 밖에서 로드됨: {common_path}"
-    assert backend.capability_bytes is avva_hash_v1.capability_bytes, \
-        "backend가 common capability_bytes가 아닌 사본을 씀"
+    assert backend.simulator_capability_bytes is avva_hash_v1.simulator_capability_bytes, \
+        "backend가 common simulator_capability_bytes가 아닌 사본을 씀"
     assert backend.sha256 is avva_hash_v1.sha256
+
+    # 2) backend.py에 인코딩 규칙(u8/u16/u32/f64/bool8/sequence 직접 호출)이
+    #    남아있지 않은지 — "값만 구성"이라면 CanonicalWriter 메서드를 직접
+    #    호출할 일이 없다
     pkg = pathlib.Path(backend.__file__).parent
+    backend_src = (pkg / "backend.py").read_text(encoding="utf-8")
+    for method in (".u8(", ".u16(", ".u32(", ".u64(", ".f64(", ".bool8(", ".sequence("):
+        assert method not in backend_src, \
+            f"backend.py가 여전히 CanonicalWriter 인코딩({method!r})을 직접 호출함 — " \
+            "규칙이 common으로 완전히 안 옮겨짐"
     for py in pkg.glob("*.py"):
         for line in py.read_text(encoding="utf-8").splitlines():
             assert not line.startswith("CAPABILITY_PREFIX ="), \
                 f"{py.name}: domain prefix가 layer 쪽에 재정의됨 — common(avva_hash_v1) 소유여야 함"
-            assert not line.startswith("def capability_bytes"), \
-                f"{py.name}: prefix+wrap 로직이 layer 쪽에 재정의됨 — common 소유여야 함"
+            assert not line.startswith("def simulator_capability_bytes"), \
+                f"{py.name}: 필드 인코딩 규칙이 layer 쪽에 재정의됨 — common 소유여야 함"
 
-    # 2) 필드 인코딩(SimulatorCapability 전용)은 backend.py 한 곳뿐 —
-    #    Traffic/Ego는 자기 구조체가 다르니 각자 자기 encode_body를 가짐(§1)
-    encoder_definers = [py.name for py in pkg.glob("*.py")
-                        if any(line.startswith("def _encode_capability")
-                               for line in py.read_text(encoding="utf-8").splitlines())]
-    assert encoder_definers == ["backend.py"], \
-        f"SimulatorCapability 필드 인코딩이 여러 곳에 정의됨: {encoder_definers}"
-
-    # 3) 교체 seam: common의 capability_bytes()를 '팀이 배포한 새 common encoder'로
-    #    바꿔치기하면 backend.py의 digest가 재배포 없이 자동으로 그걸 타야 함
+    # 3) 교체 seam: common의 simulator_capability_bytes()를 '팀이 배포한 새
+    #    common encoder'로 바꿔치기하면 backend.py의 digest가 재배포 없이
+    #    자동으로 그걸 타야 함
     cap = MockSimulatorAdapter().capabilities()
-    original = backend.capability_bytes
+    original = backend.simulator_capability_bytes
     calls: list = []
 
-    def fake_common_capability_bytes(encode_body):
-        calls.append(encode_body)
-        return original(encode_body)
+    def fake_common_encoder(**kwargs):
+        calls.append(kwargs)
+        return original(**kwargs)
 
-    backend.capability_bytes = fake_common_capability_bytes
+    backend.simulator_capability_bytes = fake_common_encoder
     try:
         d = backend.capability_digest(cap)
-        assert len(calls) == 1, "digest가 common capability_bytes() 교체 seam을 거치지 않음"
+        assert len(calls) == 1, "digest가 common simulator_capability_bytes() 교체 seam을 거치지 않음"
+        assert calls[0]["simulator_type"] == int(cap.simulator_type)  # 값 전달 확인
     finally:
-        backend.capability_bytes = original
+        backend.simulator_capability_bytes = original
     assert backend.capability_digest(cap) == d  # 원복 후에도 동일 digest
 
 
@@ -561,9 +566,9 @@ TESTS = [
      "무순서 list 순서 무영향(정렬 encoding) / max_npc vs schema capacity 구분 / "
      "canonical bytes를 struct.pack으로 독립 재구성해 §4.6 규칙 바이트 대조"),
     (test_encoder_provenance_and_swap_seam,
-     "capability_hash 아키텍처: CAPABILITY_PREFIX+capability_bytes(prefix+wrap)는 common "
-     "(avva_hash_v1)에만 있고 backend.py는 그 동일 객체를 씀(is 비교+경로) / SimulatorCapability "
-     "필드 인코딩만 backend.py 단일 정의 / common capability_bytes()를 바꿔치기하면 digest가 자동 위임"),
+     "capability_hash 아키텍처: 필드 순서/폭/enum/bool/list 정렬까지 전부 common "
+     "simulator_capability_bytes()가 소유(is 비교+경로), backend.py엔 CanonicalWriter 인코딩 "
+     "호출이 하나도 없음(값만 전달) / common encoder를 바꿔치기하면 digest가 자동 위임"),
     (test_new_run_starts_clean_and_rejects_old_epoch,
      "새 Run(새 epoch) = 새 인스턴스로 snapshot/dedup/decision_cache/ticked 전부 초기화 / "
      "이전 epoch 메시지는 EPOCH_MISMATCH 거부"),

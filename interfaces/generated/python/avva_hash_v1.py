@@ -110,6 +110,28 @@ def capability_bytes(encode_body: Callable[[CanonicalWriter], None]) -> bytes:
     return w.finish()
 
 
+def simulator_capability_bytes(
+    component_type: int, simulator_type: int, max_ego: int,
+    schema_max_npc: int, configured_max_npc: int, validated_max_npc: int,
+    supports_sync: bool, supports_async: bool,
+    supported_rate_min_hz: float, supported_rate_max_hz: float,
+    supported_control_modes: Iterable[int],
+) -> bytes:
+    """Simulator Layer ComponentCapability의 canonical byte encoding — 필드
+    순서/폭/enum-as-u8/bool-as-1byte/무순서 list 정렬 규칙을 여기 한 곳에 고정한다.
+    Layer(backend.py)는 자기 dataclass의 실제 값만 여기로 넘긴다: "필드 순서/width/
+    enum/string/list 정렬 등 canonical byte encoding 규칙은 common capability
+    encoder가 담당" (오늘 아침 공지). 새 필드가 생기면 이 함수만 갱신한다 — layer
+    쪽에는 인코딩 로직이 없으니 갱신을 잊을 여지도 없다.
+    """
+    return capability_bytes(lambda w: (
+        w.u8(component_type).u8(simulator_type).u16(max_ego)
+         .u32(schema_max_npc).u32(configured_max_npc).u32(validated_max_npc)
+         .bool8(supports_sync).bool8(supports_async)
+         .f64(supported_rate_min_hz).f64(supported_rate_max_hz)
+         .sequence(sorted(supported_control_modes), lambda ww, v: ww.u8(v), 16)))
+
+
 def frame_complete_ack_payload(decision_id: uuid.UUID | bytes, state_tick_id: int,
                                applied_snapshot_hash: bytes, ack_status: int,
                                reason_code: int) -> bytes:

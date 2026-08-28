@@ -17,15 +17,17 @@ from dataclasses import dataclass, field, fields as dc_fields
 from typing import Protocol
 
 import avva_phase1 as m
-from avva_hash_v1 import capability_bytes, sha256
+from avva_hash_v1 import sha256, simulator_capability_bytes
 
-# capability_hash의 domain prefix·wrap 규칙(canonical_encode(ComponentCapability)
-# → SHA-256)은 avva_hash_v1.capability_bytes()(common)가 소유한다 —
-# capability_digest_rule.md §3 "hash domain과 capability 전용 encoder는 분리".
-# 이 파일은 SimulatorCapability(Simulator Layer 전용 필드)의 필드 인코딩만
-# 담당하는 wrapper다. prefix 값 자체(V1 유무)는 avva_hash_v1.CAPABILITY_PREFIX
-# 쪽에서 팀 확인 대상으로 남아있다(capability_digest_rule.md §3 "AVVA-CAPABILITY-V1\0"
-# vs Capability_runtrasport_readyreject.md §1 "AVVA-CAPABILITY\0" 표기 차이).
+# capability_hash의 domain prefix·wrap 규칙 + SimulatorCapability의 canonical
+# byte encoding(필드 순서/폭/enum/bool/list 정렬)까지 전부 avva_hash_v1(common)의
+# simulator_capability_bytes()가 소유한다 — 오늘 아침 공지: "Layer에서는 실제
+# 값만 구성하고, canonical byte encoding 규칙은 common capability encoder가
+# 담당". 이 파일은 dataclass 값을 그 함수 인자로 풀어 넘기기만 한다 — 인코딩
+# 로직(u8/u16/u32/f64/sequence 호출)이 이 파일에 없다.
+# prefix 값 자체(V1 유무)는 avva_hash_v1.CAPABILITY_PREFIX 쪽에서 팀 확인
+# 대상으로 남아있다(capability_digest_rule.md §3 "AVVA-CAPABILITY-V1\0" vs
+# Capability_runtrasport_readyreject.md §1 "AVVA-CAPABILITY\0" 표기 차이).
 
 
 @dataclass(frozen=True)
@@ -58,22 +60,18 @@ class SimulatorCapability:
         return self.validated_max_npc or self.configured_max_npc
 
 
-def _encode_capability(w, cap: SimulatorCapability) -> None:
-    """SimulatorCapability 필드 인코딩만 — prefix/wrap은 common capability_bytes() 소관.
-    enum=numeric(u8), int=고정폭 little-endian, bool=1byte, float=f64, 순서 의미
-    없는 sequence는 numeric 정렬 후 u32 count+원소 (§4.6 재사용). 필드 순서는
-    dataclass 선언 순서로 FIXED.
-    """
-    w.u8(cap.component_type).u8(cap.simulator_type).u16(cap.max_ego)
-    w.u32(cap.schema_max_npc).u32(cap.configured_max_npc).u32(cap.validated_max_npc)
-    w.bool8(cap.supports_sync).bool8(cap.supports_async)
-    w.f64(cap.supported_rate_min_hz).f64(cap.supported_rate_max_hz)
-    w.sequence(sorted(cap.supported_control_modes), lambda ww, v: ww.u8(v), 16)
-    assert len(dc_fields(SimulatorCapability)) == 11, "field added without updating digest"
-
-
 def capability_canonical_bytes(cap: SimulatorCapability) -> bytes:
-    return capability_bytes(lambda w: _encode_capability(w, cap))
+    """cap의 실제 값만 common encoder에 넘긴다 — 인코딩 규칙(순서/폭/정렬)은 여기 없음."""
+    assert len(dc_fields(SimulatorCapability)) == 11, \
+        "필드가 추가/삭제됨 — common avva_hash_v1.simulator_capability_bytes()도 함께 갱신할 것"
+    return simulator_capability_bytes(
+        component_type=int(cap.component_type), simulator_type=int(cap.simulator_type),
+        max_ego=cap.max_ego, schema_max_npc=cap.schema_max_npc,
+        configured_max_npc=cap.configured_max_npc, validated_max_npc=cap.validated_max_npc,
+        supports_sync=cap.supports_sync, supports_async=cap.supports_async,
+        supported_rate_min_hz=cap.supported_rate_min_hz,
+        supported_rate_max_hz=cap.supported_rate_max_hz,
+        supported_control_modes=[int(v) for v in cap.supported_control_modes])
 
 
 def capability_digest(cap: SimulatorCapability) -> bytes:
