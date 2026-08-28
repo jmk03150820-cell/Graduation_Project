@@ -458,7 +458,8 @@ def test_capability_digest_rule():
         dataclasses.replace(cap, validated_max_npc=1),
         dataclasses.replace(cap, supports_sync=not cap.supports_sync),
         dataclasses.replace(cap, supports_async=not cap.supports_async),
-        dataclasses.replace(cap, max_rate_hz=cap.max_rate_hz + 1.0),
+        dataclasses.replace(cap, supported_rate_min_hz=cap.supported_rate_min_hz + 1.0),
+        dataclasses.replace(cap, supported_rate_max_hz=cap.supported_rate_max_hz + 1.0),
         dataclasses.replace(cap, supported_control_modes=(m.ControlMode.DIRECT_ACTUATION,)),
     ]
     variants = [capability_digest(c) for c in changed]
@@ -504,7 +505,8 @@ def test_capability_digest_rule():
                 + struct.pack("<I", cap.validated_max_npc)
                 + struct.pack("<B", 1 if cap.supports_sync else 0)   # bool = 1 byte
                 + struct.pack("<B", 1 if cap.supports_async else 0)
-                + struct.pack("<d", cap.max_rate_hz)                 # f64 LE
+                + struct.pack("<d", cap.supported_rate_min_hz)       # f64 LE
+                + struct.pack("<d", cap.supported_rate_max_hz)
                 + struct.pack("<I", len(cap.supported_control_modes))  # u32 count
                 + bytes(sorted(int(v) for v in cap.supported_control_modes)))  # 정렬된 원소
     assert capability_canonical_bytes(cap) == expected, \
@@ -512,21 +514,25 @@ def test_capability_digest_rule():
 
 
 def test_import_boundaries():
-    """경계 규칙 자동 강제 (§2-7 + 과제 8 transport 분리):
-    - `import carla`는 carla_backend.py에만 (Sim backend는 CARLA API 직접 사용 금지)
+    """경계 규칙 자동 강제 (§2-7 + 과제 8 transport 분리 + MetaDrive 2nd backend):
+    - `import carla`는 carla_backend.py에만
+    - `import metadrive`는 metadrive_backend.py에만 (Sim backend는 어느 native
+      시뮬레이터 API도 직접 사용 금지 — 과제 5 selectable execution의 전제)
     - `import rclpy`/`avva_interfaces`는 ROS 2 binding 파일에만 — ROS 2를 떼어내도
       Sim backend(gate/backend/adapter/hashing/transforms)는 수정 0
     """
     import pathlib
+    native_only = {"carla": "carla_backend.py", "metadrive": "metadrive_backend.py"}
     ros2_binding_files = {"ros2_node.py", "ros2_convert.py",
                           "demo_ros2_lifecycle.py", "test_ros2_convert.py"}
     pkg = pathlib.Path(__file__).parent
     for py in pkg.glob("*.py"):
         for line in py.read_text(encoding="utf-8").splitlines():
             code = line.split("#")[0].strip()
-            if py.name != "carla_backend.py":
-                assert not (code.startswith("import carla") or code.startswith("from carla")), \
-                    f"{py.name}: carla import leaked outside carla_backend.py"
+            for mod, owner in native_only.items():
+                if py.name != owner:
+                    assert not (code.startswith(f"import {mod}") or code.startswith(f"from {mod}")), \
+                        f"{py.name}: {mod} import leaked outside {owner}"
             if py.name not in ros2_binding_files:
                 for mod in ("rclpy", "avva_interfaces"):
                     assert not (code.startswith(f"import {mod}") or code.startswith(f"from {mod}")), \
@@ -560,7 +566,8 @@ TESTS = [
      "새 Run(새 epoch) = 새 인스턴스로 snapshot/dedup/decision_cache/ticked 전부 초기화 / "
      "이전 epoch 메시지는 EPOCH_MISMATCH 거부"),
     (test_import_boundaries,
-     "import carla는 carla_backend.py에만 / rclpy·avva_interfaces는 ROS2 binding 파일에만"),
+     "import carla는 carla_backend.py에만 / import metadrive는 metadrive_backend.py에만 / "
+     "rclpy·avva_interfaces는 ROS2 binding 파일에만"),
 ]
 
 

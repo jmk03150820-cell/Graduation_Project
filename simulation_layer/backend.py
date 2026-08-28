@@ -19,7 +19,11 @@ from typing import Protocol
 import avva_phase1 as m
 from avva_hash_v1 import CanonicalWriter, sha256
 
-CAPABILITY_PREFIX = b"AVVA-CAPABILITY-V1\0"  # capability_digest_rule.md §3
+# capability_digest_rule.md §3은 "AVVA-CAPABILITY-V1\0", 후속 공지
+# (Capability_runtrasport_readyreject.md §1)는 "AVVA-CAPABILITY\0"로 표기가 갈림.
+# 기존 공통 prefix들(AVVA-PAYLOAD-V1 등)이 전부 버전 포함이라 V1을 유지하되,
+# common capability_hash 유닛 배포 시 그쪽 값으로 확정 — 팀 확인 플래그됨.
+CAPABILITY_PREFIX = b"AVVA-CAPABILITY-V1\0"
 
 
 @dataclass(frozen=True)
@@ -40,7 +44,10 @@ class SimulatorCapability:
     validated_max_npc: int                 # stress test로 검증된 값; 0 = 미검증
     supports_sync: bool
     supports_async: bool
-    max_rate_hz: float                     # 지원 가능한 최대 fixed-step rate
+    # rate는 "이번 Run의 실행 rate"가 아니라 "지원 가능한 범위"
+    # (Capability_runtrasport_readyreject.md §2 — target_rate_hz는 RunConfig 소관)
+    supported_rate_min_hz: float
+    supported_rate_max_hz: float
     supported_control_modes: tuple[m.ControlMode, ...]  # 순서 의미 없는 집합 — hash 시 정렬
 
     @property
@@ -61,9 +68,10 @@ def capability_canonical_bytes(cap: SimulatorCapability) -> bytes:
     w = CanonicalWriter().bytes(CAPABILITY_PREFIX)
     w.u8(cap.component_type).u8(cap.simulator_type).u16(cap.max_ego)
     w.u32(cap.schema_max_npc).u32(cap.configured_max_npc).u32(cap.validated_max_npc)
-    w.bool8(cap.supports_sync).bool8(cap.supports_async).f64(cap.max_rate_hz)
+    w.bool8(cap.supports_sync).bool8(cap.supports_async)
+    w.f64(cap.supported_rate_min_hz).f64(cap.supported_rate_max_hz)
     w.sequence(sorted(cap.supported_control_modes), lambda ww, v: ww.u8(v), 16)
-    assert len(dc_fields(SimulatorCapability)) == 10, "field added without updating digest"
+    assert len(dc_fields(SimulatorCapability)) == 11, "field added without updating digest"
     return w.finish()
 
 
@@ -93,9 +101,10 @@ def check_configuration(cap: SimulatorCapability, config: RunConfig) -> None:
         # Policy 확장점 — 이 분기가 그 경계이며, supports_async 시뮬레이터라도
         # 정책 구현 전까지는 거부한다.
         raise NotImplementedError("Phase 1 supports SYNC_FIXED_STEP only (async = Phase 2)")
-    if not 0 < config.target_rate_hz <= cap.max_rate_hz:
-        raise ValueError(f"target_rate_hz {config.target_rate_hz} out of range "
-                         f"(0, {cap.max_rate_hz}] for {cap.simulator_type.name}")
+    if not cap.supported_rate_min_hz <= config.target_rate_hz <= cap.supported_rate_max_hz:
+        raise ValueError(f"target_rate_hz {config.target_rate_hz} out of supported range "
+                         f"[{cap.supported_rate_min_hz}, {cap.supported_rate_max_hz}] "
+                         f"for {cap.simulator_type.name}")
 
 
 @dataclass
@@ -152,3 +161,25 @@ class SimulatorAdapter(Protocol):
 
     def shutdown(self) -> None:
         """native 연결 정리 (sync mode 해제, actor destroy 등)."""
+
+
+def create_simulator_adapter(simulator_type: str | m.NativeAdapterType, **kwargs) -> "SimulatorAdapter":
+    """simulator_type으로 어댑터 선택 (CARLA/MetaDrive/mock).
+
+    RunManifest.SimInstanceProfile.adapter_type이 여기로 이어질 예정 —
+    import는 함수 안에서만 해서 미설치 시뮬레이터 패키지를 요구하지 않는다.
+    """
+    if isinstance(simulator_type, m.NativeAdapterType):
+        name = simulator_type.name.lower()
+    else:
+        name = simulator_type.strip().lower()
+    if name == "carla":
+        from .carla_backend import CarlaSimulatorAdapter
+        return CarlaSimulatorAdapter(**kwargs)
+    if name == "metadrive":
+        from .metadrive_backend import MetaDriveSimulatorAdapter
+        return MetaDriveSimulatorAdapter(**kwargs)
+    if name in ("mock", "native_adapter_unspecified"):
+        from .mock_backend import MockSimulatorAdapter
+        return MockSimulatorAdapter(**kwargs)
+    raise ValueError(f"unknown simulator_type: {simulator_type!r}")

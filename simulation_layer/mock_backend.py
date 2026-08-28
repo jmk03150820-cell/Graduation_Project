@@ -18,7 +18,8 @@ _CAPABILITIES = SimulatorCapability(
     max_ego=8,  # 계약 AVVA_MAX_EGO_COUNT
     # capability_digest_rule.md §2: schema capacity(1200)를 max로 선언하지 않는다.
     schema_max_npc=1200, configured_max_npc=200, validated_max_npc=0,  # stress test 전 provisional
-    supports_sync=True, supports_async=False, max_rate_hz=1000.0,
+    supports_sync=True, supports_async=False,
+    supported_rate_min_hz=1.0, supported_rate_max_hz=1000.0,
     supported_control_modes=(m.ControlMode.VELOCITY_TARGET, m.ControlMode.ACCELERATION_TARGET,
                              m.ControlMode.DIRECT_ACTUATION))
 

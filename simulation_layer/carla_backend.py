@@ -30,7 +30,8 @@ _CAPABILITIES = SimulatorCapability(
     # 1000 NPC stress 단계(기준서 §14.3) 후 validated_max_npc로 확정.
     schema_max_npc=1200, configured_max_npc=100, validated_max_npc=0,
     supports_sync=True, supports_async=True,  # async 모드는 존재하나 Phase 1은 거부(§2-5 전제)
-    max_rate_hz=100.0,  # CARLA 권장 fixed_delta >= 0.01s
+    # CARLA 권장 fixed_delta: 0.01s(100Hz) ~ 0.1s(10Hz) — 지원 "범위"로 선언
+    supported_rate_min_hz=10.0, supported_rate_max_hz=100.0,
     supported_control_modes=(m.ControlMode.DIRECT_ACTUATION, m.ControlMode.VELOCITY_TARGET,
                              m.ControlMode.ACCELERATION_TARGET))  # 뒤 2개는 P-controller 근사
 
