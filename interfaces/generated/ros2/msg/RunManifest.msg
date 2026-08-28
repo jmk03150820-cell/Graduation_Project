@@ -1,0 +1,21 @@
+# GENERATED from ../../../schema/avva_phase1.idl by generate_ros2_msgs.py. DO NOT EDIT.
+CommonHeader header
+SemanticVersion manifest_version
+uint8 execution_mode
+uint64 fixed_step_ns
+uint32 warmup_ticks
+uint64 seed
+ContentRef map_ref
+ContentRef scenario_ref
+SimInstanceProfile[<=8] sim_instances
+string<=63[<=8] required_sim_ids
+EgoProfile[<=8] ego_profiles
+TrafficProfile traffic_profile
+uint32 max_actor_count
+uint16 max_report_count
+uint16 max_prediction_points
+uint64 deadline_budget_ns
+TimeoutConfig timeouts
+uint8 transport_profile
+SoftwareVersion[<=32] software_versions
+LoggingProfile logging_profile

@@ -1,0 +1,154 @@
+"""Simulator Adapter 공통 인터페이스 — Sim Backend 공통 로직과 simulator-specific
+코드의 경계 (기준서 §2-7/§2-8).
+
+경계 규칙: 이 파일과 gate.py는 공통/계약 타입만 다룬다. `import carla`는
+carla_backend.py 안에만, `import rclpy`는 ros2_node.py 안에만 존재한다
+(test_frame_lifecycle의 boundary test로 강제).
+
+인터페이스는 특정 시뮬레이터의 호출 구조가 아니라 의미만 계약한다:
+apply_control(적용) / tick(정확히 1 native fixed step) / get_actor_state(상태 추출)
++ lifecycle(initialize/configure/spawn/remove/reset/shutdown) + capabilities().
+gym 스타일 시뮬레이터(MetaDrive)는 apply_control=action 저장, tick=env.step,
+get_actor_state=관측 파싱으로 흡수한다.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field, fields as dc_fields
+from typing import Protocol
+
+import avva_phase1 as m
+from avva_hash_v1 import CanonicalWriter, sha256
+
+CAPABILITY_PREFIX = b"AVVA-CAPABILITY-V1\0"  # capability_digest_rule.md §3
+
+
+@dataclass(frozen=True)
+class SimulatorCapability:
+    """Simulator Layer의 ComponentCapability (capability_digest_rule.md §1).
+
+    공통 필드(component_type/adapter type/max_npc/max_ego/sync/async/rate) +
+    Simulator-specific(simulator_type). max_npc는 §2 규칙대로 3단 구분:
+    schema capacity(1200)를 그대로 선언하지 않고, stress test 전에는
+    configured(provisional) 값을 쓰며 검증 후 validated로 확정한다.
+    runtime metric(현재 NPC 수/tick/FPS 등)은 여기 넣지 않는다 (§4).
+    """
+    component_type: m.ComponentId          # SIM_BACKEND 고정
+    simulator_type: m.NativeAdapterType    # layer-specific: CARLA/MetaDrive/...
+    max_ego: int
+    schema_max_npc: int                    # 메시지 구조가 표현 가능한 최대치 (=1200)
+    configured_max_npc: int                # 현재 설정상 허용 최대치 (provisional)
+    validated_max_npc: int                 # stress test로 검증된 값; 0 = 미검증
+    supports_sync: bool
+    supports_async: bool
+    max_rate_hz: float                     # 지원 가능한 최대 fixed-step rate
+    supported_control_modes: tuple[m.ControlMode, ...]  # 순서 의미 없는 집합 — hash 시 정렬
+
+    @property
+    def effective_max_npc(self) -> int:
+        """Phase 1: 검증 전엔 configured, 검증 후엔 validated (§2)."""
+        return self.validated_max_npc or self.configured_max_npc
+
+
+def capability_canonical_bytes(cap: SimulatorCapability) -> bytes:
+    """canonical byte stream (capability_digest_rule.md §3, §4.6 encoding 재사용):
+    enum=numeric(u8), int=고정폭 little-endian, bool=1byte, float=f64,
+    순서 의미 없는 sequence는 numeric 정렬 후 u32 count+원소.
+    필드 순서는 dataclass 선언 순서로 FIXED.
+    주의: 공지문은 정확한 필드 순서까지 못박지 않았으므로, common 쪽 공통
+    encoder가 배포되면 이 구현을 그것으로 교체하고 순서 일치를 확인해야 한다
+    (레이어별 임의 포맷 금지 원칙에 따라 팀 확인 플래그됨).
+    """
+    w = CanonicalWriter().bytes(CAPABILITY_PREFIX)
+    w.u8(cap.component_type).u8(cap.simulator_type).u16(cap.max_ego)
+    w.u32(cap.schema_max_npc).u32(cap.configured_max_npc).u32(cap.validated_max_npc)
+    w.bool8(cap.supports_sync).bool8(cap.supports_async).f64(cap.max_rate_hz)
+    w.sequence(sorted(cap.supported_control_modes), lambda ww, v: ww.u8(v), 16)
+    assert len(dc_fields(SimulatorCapability)) == 10, "field added without updating digest"
+    return w.finish()
+
+
+def capability_digest(cap: SimulatorCapability) -> bytes:
+    """capability_digest = SHA256(canonical_encode(ComponentCapability)) (§3)."""
+    return sha256(capability_canonical_bytes(cap))
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    """Run 단위 실행 설정. fixed delta는 하드코딩하지 않고 target_rate_hz에서 유도."""
+    target_rate_hz: float = 20.0
+    execution_mode: m.ExecutionMode = m.ExecutionMode.SYNC_FIXED_STEP
+
+    @property
+    def fixed_step_ns(self) -> int:
+        return round(1e9 / self.target_rate_hz)
+
+
+def check_configuration(cap: SimulatorCapability, config: RunConfig) -> None:
+    """capability fail-fast (§2-7): 시나리오 요구를 못 채우면 실행 전에 실패."""
+    if config.execution_mode == m.ExecutionMode.SYNC_FIXED_STEP:
+        if not cap.supports_sync:
+            raise ValueError(f"{cap.simulator_type.name}: sync fixed-step unsupported")
+    else:
+        # ponytail: Phase 1은 sync lockstep만 구현. async는 Phase 2 Execution
+        # Policy 확장점 — 이 분기가 그 경계이며, supports_async 시뮬레이터라도
+        # 정책 구현 전까지는 거부한다.
+        raise NotImplementedError("Phase 1 supports SYNC_FIXED_STEP only (async = Phase 2)")
+    if not 0 < config.target_rate_hz <= cap.max_rate_hz:
+        raise ValueError(f"target_rate_hz {config.target_rate_hz} out of range "
+                         f"(0, {cap.max_rate_hz}] for {cap.simulator_type.name}")
+
+
+@dataclass
+class ActorKinematics:
+    """공통(ENU, SI, radian) 좌표계의 per-actor 동적 상태. simulator native 값 금지."""
+    position: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    velocity: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    acceleration: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    angular_velocity: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    orientation_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+    dimensions_lwh: tuple[float, float, float] | None = None  # 정적, spawn 시 1회 캐싱
+
+
+class SimulatorAdapter(Protocol):
+    """한 native simulator를 감싸는 어댑터. logical actor_id만 노출한다.
+
+    Sim Backend(gate.py)는 이 인터페이스만 호출한다 — 새 시뮬레이터는
+    이 Protocol 구현 클래스 하나로 추가되고 Sim Backend는 수정 0.
+    호출 순서: initialize() → configure() → spawn_actor()* → [reset() →
+    apply_control()/tick()/get_actor_state() 루프] → shutdown().
+    """
+    native_session_id: bytes
+    native_generation: int
+
+    def initialize(self) -> None:
+        """native 연결 수립 (CARLA: client+world 접속, session id 발급)."""
+
+    def configure(self, config: RunConfig) -> None:
+        """capability 검증 후 실행 모드/fixed delta 설정. 위반 시 즉시 예외."""
+
+    def capabilities(self) -> SimulatorCapability:
+        """이 시뮬레이터의 능력 서술자."""
+
+    def spawn_actor(self, actor_id: str, spec: str) -> None:
+        """actor 1개 생성. spec은 어댑터별 모델 지정자 (CARLA: blueprint id)."""
+
+    def remove_actor(self, actor_id: str) -> None:
+        """actor 1개 제거."""
+
+    def reset(self) -> None:
+        """run 시작 상태로 정착 (warm-up 포함). native frame 기준점 재설정."""
+
+    def apply_control(self, controls: dict[str, m.NeutralControl]) -> None:
+        """이번 tick에 적용할 제어 일괄 등록. 실패는 예외로 (gate가 NATIVE_APPLY_ERROR 처리)."""
+
+    def tick(self) -> None:
+        """native fixed step 정확히 1회. 실패는 예외로 (gate가 NATIVE_TICK_ERROR 처리)."""
+
+    def get_actor_state(self) -> dict[str, ActorKinematics]:
+        """공통 좌표계로 변환된 전체 actor 상태."""
+
+    def native_frame_id(self) -> str:
+        """native simulator frame counter (BoundedId, 선행 0 없는 10진수)."""
+
+    def shutdown(self) -> None:
+        """native 연결 정리 (sync mode 해제, actor destroy 등)."""
