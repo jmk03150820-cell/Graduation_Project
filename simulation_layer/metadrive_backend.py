@@ -84,9 +84,18 @@ class MetaDriveSimulatorAdapter:
         self._pending_spawns.append((actor_id, spec))
 
     def remove_actor(self, actor_id: str) -> None:
-        # ponytail: MultiAgentEnv의 respawn/removal API는 Phase 1 범위 밖(Registry
-        # 동적 갱신 자체가 아직 gate에 안 붙어 있음, CARLA도 동일 상태).
-        raise NotImplementedError("MetaDrive adapter: runtime remove_actor는 Phase 1 미지원")
+        """실측 확인(2026-08-27): agent_manager._finish(name, ignore_delay_done=True)가
+        해당 agent를 즉시 제거하고, 남은 agent들의 step()은 그대로 정상 진행된다
+        (delay_done 큐를 거치지 않아 즉시 반영 — spawn_actor 이전 등록 목록에서도 제거해
+        같은 actor_id 재사용 시 중복 등록 에러가 안 나게 한다).
+        """
+        if self._env is None:
+            self._pending_spawns = [(a, s) for a, s in self._pending_spawns if a != actor_id]
+            return
+        engine_id = self._actor_to_engine.pop(actor_id)
+        self._env.engine.agent_manager._finish(engine_id, ignore_delay_done=True)
+        self._last_heading.pop(actor_id, None)
+        self._pending_actions.pop(actor_id, None)
 
     def reset(self) -> None:
         if self._config is None:
