@@ -6,9 +6,13 @@ excluded. Enums are u8, MessageKind/ReasonCode u16, per the golden vectors.
 Only the 8 messages on the Simulation Layer data path are implemented.
 
 NeutralControl: a numeric field whose valid_fields_mask bit is 0 is not
-hashed (README rule 5 "bit가 꺼진 숫자 값은 ... 읽거나 hash하지 않는다") — the
-mask itself is the presence flag, so no extra Bool8 is written. No golden
-vector covers this; flagged to the contract owner for confirmation.
+hashed. Confirmed (not just README rule 5) by the 구현기준서 §6.6 표34:
+"mask가 유일한 숫자 필드 존재 판정이다. bit=0 값은 0-normalized하고 읽거나
+hash하지 않는다" — the mask itself is the presence flag, so no extra Bool8
+is written for these fields. This is a documented exception to the general
+"모든 application field 포함" rule (§4.6), scoped specifically to
+NeutralControl's masked fields. No golden vector covers this yet, but the
+behavior itself is settled, not an open question.
 """
 from __future__ import annotations
 
@@ -253,3 +257,56 @@ def component_ready_hash(msg: m.ComponentReady) -> bytes:
         _software_version(w, msg.software_version)
         w.sequence(msg.reason_codes, lambda ww, v: ww.u16(v), 32)
     return sha256(payload_bytes(m.COMPONENT_READY, body))
+
+
+def run_control_ack_hash(msg: m.RunControlAck) -> bytes:
+    def body(w: CanonicalWriter) -> None:
+        w.uuid128(msg.command_id).u8(msg.action).u8(msg.ack_status)
+        w.u8(msg.current_run_state).u16(msg.reason_code)
+    return sha256(payload_bytes(m.RUN_CONTROL_ACK, body))
+
+
+def component_heartbeat_hash(msg: m.ComponentHeartbeat) -> bytes:
+    def body(w: CanonicalWriter) -> None:
+        w.u8(msg.component_state).u8(msg.health_status)
+        w.bool8(msg.last_state_tick_id.has_value)
+        if msg.last_state_tick_id.has_value:
+            w.u64(msg.last_state_tick_id.value)
+        w.bool8(msg.last_target_tick_id.has_value)
+        if msg.last_target_tick_id.has_value:
+            w.u64(msg.last_target_tick_id.value)
+        w.bool8(msg.native_session_id.has_value)
+        if msg.native_session_id.has_value:
+            w.uuid128(msg.native_session_id.value)
+        w.u64(msg.monotonic_time_ns)
+    return sha256(payload_bytes(m.COMPONENT_HEARTBEAT, body))
+
+
+def _tick_refs(w: CanonicalWriter, t: m.TickRefs) -> None:
+    # TickRefs 필드는 OptionalXxx 타입이 아니라 평범한 has_X+X 쌍이지만, has_X가
+    # presence flag 역할인 건 동일하다(§4.6 Optional 패턴과 동일 취급) — 4개 필드
+    # 전부 동일하게 조건부 인코딩해야 한다. has_decision_id만 조건부, 나머지 3개는
+    # 무조건 인코딩하던 이전 버전은 팀 다른 컴포넌트의 인코더와 canonical bytes가
+    # 어긋날 수 있는 버그였음.
+    w.bool8(t.has_state_tick_id)
+    if t.has_state_tick_id:
+        w.u64(t.state_tick_id)
+    w.bool8(t.has_based_on_tick_id)
+    if t.has_based_on_tick_id:
+        w.u64(t.based_on_tick_id)
+    w.bool8(t.has_target_tick_id)
+    if t.has_target_tick_id:
+        w.u64(t.target_tick_id)
+    w.bool8(t.has_decision_id)
+    if t.has_decision_id:
+        w.uuid128(t.decision_id)
+
+
+def reject_notice_hash(msg: m.RejectNotice) -> bytes:
+    # detail_message is excluded from hashes by contract (§4.6), same as Warning
+    def body(w: CanonicalWriter) -> None:
+        w.u8(msg.target_component_id).u16(msg.rejected_message_kind).hash256(msg.related_hash)
+        _tick_refs(w, msg.tick_refs)
+        w.u16(msg.reason_code).bool8(msg.retryable)
+        _detail_data(w, msg.detail_data)
+    return sha256(payload_bytes(m.REJECT_NOTICE, body))

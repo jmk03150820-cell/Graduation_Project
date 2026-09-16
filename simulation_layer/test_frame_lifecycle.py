@@ -543,6 +543,143 @@ def test_capability_digest_rule():
         "canonical byte stream이 공통 encoding 규칙과 다름"
 
 
+def test_backend_swap_via_factory():
+    """create_simulator_adapter()로 backend를 바꿔도 Sim Backend(gate.py) 로직은
+    수정 0이어야 한다(§2-7 "새 시뮬레이터는 Protocol 구현 클래스 하나로 추가되고
+    Sim Backend는 수정 0"). CARLA/MetaDrive는 외부 서버/패키지가 필요해 이 자동
+    번들(포터블, 외부 서버 무의존)에서는 dispatch(문자열/enum 둘 다)만 확인하고,
+    실제 tick까지 도는 end-to-end 교체 증명은 mock으로 한다 — CARLA/MetaDrive의
+    라이브 tick 교체는 이전 세션에서 실제 서버로 수동 검증됐음(이 자동 번들에는
+    없음, 필요시 별도 실행)."""
+    from simulation_layer.backend import create_simulator_adapter
+    from simulation_layer.carla_backend import CarlaSimulatorAdapter
+    from simulation_layer.metadrive_backend import MetaDriveSimulatorAdapter
+
+    # 1) dispatch: 문자열(대소문자 무관)/enum 둘 다로 올바른 구체 클래스가 선택되는지.
+    #    연결은 안 함(__init__만 호출) — 외부 서버 없이도 안전.
+    assert isinstance(create_simulator_adapter("carla"), CarlaSimulatorAdapter)
+    assert isinstance(create_simulator_adapter("CARLA"), CarlaSimulatorAdapter)
+    assert isinstance(create_simulator_adapter(m.NativeAdapterType.CARLA), CarlaSimulatorAdapter)
+    assert isinstance(create_simulator_adapter("metadrive"), MetaDriveSimulatorAdapter)
+    assert isinstance(create_simulator_adapter("mock"), MockSimulatorAdapter)
+    assert isinstance(create_simulator_adapter(m.NativeAdapterType.NATIVE_ADAPTER_UNSPECIFIED),
+                      MockSimulatorAdapter)
+    try:
+        create_simulator_adapter(m.NativeAdapterType.MORAI)
+        assert False, "지원 안 하는 simulator_type이 조용히 통과함"
+    except ValueError:
+        pass
+
+    # 2) 실제 교체 가능성: factory로 만든 backend를 SimulationLayer에 꽂아 정상
+    #    frame 1개(§7.3 bootstrap -> AdvanceFrame -> native step)가 끝까지 도는지 —
+    #    gate.py는 어떤 concrete adapter인지 전혀 모른 채 동작해야 한다.
+    for name in ("mock", "native_adapter_unspecified"):
+        backend = create_simulator_adapter(name)
+        backend.initialize()
+        backend.configure(RUN_CONFIG)
+        backend.spawn_actor(EGO_ID)
+        registry = [RegistryEntry(EGO_ID, m.ActorRole.ACTOR_ROLE_EGO, m.ControlOwner.EGO_STACK,
+                                  m.Lifecycle.ACTIVE, m.RepresentationLevel.FULL_PHYSICS, m.ActorClass.PASSENGER_CAR)]
+        published: list[tuple[str, object]] = []
+        layer = SimulationLayer(backend, RUN_ID, EPOCH, SIM_ID, registry, RUN_CONFIG,
+                                publish=lambda ch, msg: published.append((ch, msg)))
+        layer.bootstrap()
+        obs0 = by_channel(published, "observation")[0]
+        layer.on_ego_control(mock_ego_command(obs0))
+        layer.on_npc_batch(_empty_npc_batch(obs0.state_tick_id))
+        ready = by_channel(published, "command_ready")[0]
+        layer.on_advance_frame(mock_advance(ready, uuid.uuid4().bytes))
+        assert int(backend.native_frame_id()) == 1, f"{name} dispatch backend가 정상 진행 안 됨"
+
+
+def _empty_npc_batch(based_on_tick_id: int) -> m.NpcControlBatch:
+    """NPC 없는 registry용 최소 NpcControlBatch (backend swap 시험 전용, ego만 있음)."""
+    batch = m.NpcControlBatch(
+        header=None, based_on_tick_id=based_on_tick_id, target_tick_id=based_on_tick_id + 1,
+        control_set_meta=m.ControlSetMeta(version=1, digest=b"\x00" * 32, expected_ego_count=1,
+                                          expected_traffic_count=0),
+        items=[], lifecycle_intents=[], engine_step_id=based_on_tick_id + 1,
+        engine_sim_time_ns=(based_on_tick_id + 1) * STEP_NS, engine_step_duration_ns=1_000_000)
+    batch.header = _header(m.ComponentId.TRAFFIC_ADAPTER, m.ScopeKind.SIM,
+                           hashing.npc_control_batch_hash(batch), based_on_tick_id * STEP_NS)
+    return batch
+
+
+def test_masked_off_gear_handbrake_must_be_zero():
+    """기준서 §6.6 표34: "mask가 유일한 숫자 필드 존재 판정이다. bit=0 값은
+    0-normalized하고 읽거나 hash하지 않는다" — gear(bit7)/hand_brake(bit8)도 예외가
+    아닌데, validate_neutral_control의 0-정규화 검증 루프는 float 필드(bit0~6)만
+    돌아서 이 둘은 빠져 있었다."""
+    base = dict(control_mode=m.ControlMode.DIRECT_ACTUATION, valid_fields_mask=(1 << 0) | (1 << 5) | (1 << 6),
+               steering_tire_angle_rad=0.0, steering_tire_rotation_rate_rad_s=0.0,
+               velocity_mps=0.0, acceleration_mps2=0.0, jerk_mps3=0.0,
+               throttle=0.3, brake=0.0, gear=m.Gear.GEAR_UNKNOWN, hand_brake=False)
+    from simulation_layer.gate import validate_neutral_control
+    assert validate_neutral_control(m.NeutralControl(**base), require_steer=True) == 0
+
+    bad_gear = {**base, "gear": m.Gear.DRIVE}  # bit7=0인데 값이 있음
+    assert validate_neutral_control(m.NeutralControl(**bad_gear), require_steer=True) == m.INVALID_FIELD_MASK
+
+    bad_hb = {**base, "hand_brake": True}  # bit8=0인데 값이 있음
+    assert validate_neutral_control(m.NeutralControl(**bad_hb), require_steer=True) == m.INVALID_FIELD_MASK
+
+
+def test_unknown_ego_actor_id_rejected_not_crashed():
+    """NPC 쪽은 registry에 없는 actor_id를 UNKNOWN_ACTOR_ID로 거부하는데 ego 쪽엔
+    이 대조가 없었다 — registry에 없는 ego_id가 그대로 backend.apply_control로
+    흘러가 KeyError -> 잘못 NATIVE_APPLY_ERROR(재시도 불가 abort)로 분류되던 문제."""
+    layer, backend, published = make_layer()
+    layer.bootstrap()
+    ws0 = by_channel(published, "world_state")[0]
+    obs0 = by_channel(published, "observation")[0]
+
+    ghost = mock_ego_command(obs0)
+    ghost.header.ego_id = m.OptionalBoundedId(True, "ghost_ego")
+    ghost.header.payload_hash = hashing.ego_control_command_hash(ghost)
+    layer.on_ego_control(ghost)
+    layer.on_npc_batch(mock_npc_batch(ws0))
+
+    ready = by_channel(published, "command_ready")[0]
+    assert ready.validity == m.Validity.INVALID
+    assert any(r.actor_id == "ghost_ego" and r.reason_code == m.UNKNOWN_ACTOR_ID for r in ready.actor_reasons)
+    assert layer.state == "READY", "입력 오류인데 crash/abort 없이 정상적으로 READY까지 도달해야 함"
+
+
+def test_wrong_sim_id_value_rejected_not_just_presence():
+    """이전엔 sim_id "존재 여부"만 확인했지(그것도 on_ego_control만) 실제 값이
+    이 컴포넌트의 self.sim_id와 같은지는 어느 핸들러도 확인하지 않았다. 이제
+    _check_run()이 값까지 검사해서 4개 핸들러 전부에 자동 적용된다."""
+    layer, backend, published = make_layer()
+    layer.bootstrap()
+    obs0 = by_channel(published, "observation")[0]
+    cmd = mock_ego_command(obs0)
+    cmd.header.sim_id = m.OptionalBoundedId(True, "some_other_sim")
+    cmd.header.payload_hash = hashing.ego_control_command_hash(cmd)
+    layer.on_ego_control(cmd)
+    assert layer.ego_slot is None
+    assert layer.events[-1]["reason_code"] == m.INVALID_HEADER_SCOPE
+
+
+def test_double_tick_defense_routes_through_abort_not_bare_assert():
+    """defense 3(exactly-once tick 최종 가드)은 예전에 bare `assert`였다 —
+    `python -O`로 돌리면 이 방어가 통째로 사라진다. 이제 나머지 파일과 동일하게
+    _abort()로 처리돼 항상 작동하고 evidence(RejectNotice)도 남는다."""
+    layer, backend, published = make_layer()
+    layer.bootstrap()
+    ws0 = by_channel(published, "world_state")[0]
+    obs0 = by_channel(published, "observation")[0]
+    layer.on_ego_control(mock_ego_command(obs0))
+    layer.on_npc_batch(mock_npc_batch(ws0))
+    ready = by_channel(published, "command_ready")[0]
+
+    layer.ticked.add(ready.target_tick_id)  # defense-3가 막아야 하는 상황을 직접 재현
+    layer.on_advance_frame(mock_advance(ready, uuid.uuid4().bytes))
+    assert layer.state == "ABORTED"
+    assert layer.events[-1]["reason_code"] == m.INTERNAL_ERROR
+    assert int(backend.native_frame_id()) == 0, "이중 tick이 실제로 실행되면 안 됨"
+    assert by_channel(published, "evidence/reject"), "internal invariant 위반도 RejectNotice로 나가야 함"
+
+
 def test_import_boundaries():
     """경계 규칙 자동 강제 (§2-7 + 과제 8 transport 분리 + MetaDrive 2nd backend):
     - `import carla`는 carla_backend.py에만
@@ -597,6 +734,21 @@ TESTS = [
      "새 Run(새 epoch) = 새 인스턴스로 snapshot/dedup/decision_cache/ticked/native_frame_before "
      "전부 초기화 / 이전 epoch 메시지는 EPOCH_MISMATCH 거부 / 새 epoch 메시지로는 native_frame_id가 "
      "0->1로 진짜 다시 시작(캐리오버 없음)까지 끝까지 진행해 확인"),
+    (test_masked_off_gear_handbrake_must_be_zero,
+     "기준서 §6.6 표34: mask bit=0인 gear(bit7)/hand_brake(bit8)는 0-normalized 안 되면 "
+     "INVALID_FIELD_MASK — 예전엔 float 필드만 검증하던 루프에서 빠져 있었음"),
+    (test_unknown_ego_actor_id_rejected_not_crashed,
+     "registry에 없는 ego_id -> CommandSetReady INVALID+UNKNOWN_ACTOR_ID로 안전하게 거부, "
+     "예전처럼 apply_control KeyError로 crash 안 남"),
+    (test_wrong_sim_id_value_rejected_not_just_presence,
+     "다른 sim_id 값을 담은 메시지 -> INVALID_HEADER_SCOPE 거부(예전엔 존재 여부만 봐서 통과됐음)"),
+    (test_double_tick_defense_routes_through_abort_not_bare_assert,
+     "exactly-once defense 3을 직접 재현(ticked에 미리 추가) -> bare assert 대신 _abort()로 "
+     "처리돼 INTERNAL_ERROR+RejectNotice까지 남고 native step은 0회 유지"),
+    (test_backend_swap_via_factory,
+     "create_simulator_adapter()가 문자열/enum 둘 다로 CARLA/MetaDrive/mock 정확한 클래스를 "
+     "dispatch(연결 없이) / 미지원 타입은 ValueError / factory가 만든 backend 2종 각각으로 "
+     "gate.py 수정 없이 정상 frame 1개 끝까지 진행(교체 가능성 실증)"),
     (test_import_boundaries,
      "import carla는 carla_backend.py에만 / import metadrive는 metadrive_backend.py에만 / "
      "rclpy·avva_interfaces는 ROS2 binding 파일에만"),

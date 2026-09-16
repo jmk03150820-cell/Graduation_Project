@@ -76,6 +76,12 @@ def validate_neutral_control(c: m.NeutralControl, require_steer: bool) -> int:
                 return m.INVALID_FIELD_MASK  # masked-off values must be 0-normalized
         elif v != v or v in (float("inf"), float("-inf")):
             return m.NON_FINITE_VALUE
+    # 기준서 §6.6 표34: "bit=0 값은 0-normalized하고 읽거나 hash하지 않는다" — bit7(gear)/
+    # bit8(hand_brake)도 같은 규칙이지만 위 루프는 float 필드만 다뤄서 빠져 있었다.
+    if not mask & (1 << 7) and c.gear != m.Gear.GEAR_UNKNOWN:
+        return m.INVALID_FIELD_MASK
+    if not mask & (1 << 8) and c.hand_brake:
+        return m.INVALID_FIELD_MASK
     if mask & (1 << 5) and not 0.0 <= c.throttle <= 1.0:
         return m.OUT_OF_RANGE
     if mask & (1 << 6) and not 0.0 <= c.brake <= 1.0:
@@ -115,15 +121,35 @@ class SimulationLayer:
         self._native_frame_before = 0
 
     # ---- evidence --------------------------------------------------------
-    def _event(self, event: str, reason_code: int = 0, **extra) -> None:
+    def _event(self, event: str, reason_code: int = 0, header: m.CommonHeader | None = None,
+              **extra) -> None:
         self.events.append({"event": event, "reason_code": reason_code,
                             "state": self.state, "state_tick": self.state_tick,
                             "wall_ns": time.time_ns(), **extra})
+        # REJECT = 보낸 쪽 메시지 자체를 거부, 상태는 안 바뀜 -> 고쳐서 재전송 가능 (§2 출력 경계: RejectNotice)
+        if event == "REJECT" and header is not None and reason_code:
+            self._publish_reject(header, extra.get("kind", 0), reason_code, retryable=True)
 
-    def _abort(self, reason_code: int, **extra) -> None:
+    def _abort(self, reason_code: int, header: m.CommonHeader | None = None, **extra) -> None:
         # §8.6: abort evidence is flushed synchronously before anything else
         self._event("ABORT", reason_code, **extra)
         self.state = "ABORTED"
+        # ABORT = 이 Run은 더 못 씀 -> 재전송으로 해결 안 됨, 새 Run 필요
+        if header is not None:
+            self._publish_reject(header, extra.get("kind", 0), reason_code, retryable=False)
+
+    def _publish_reject(self, header: m.CommonHeader, rejected_kind: int, reason_code: int,
+                        retryable: bool) -> None:
+        notice = m.RejectNotice(
+            header=None, target_component_id=header.producer_id, rejected_message_kind=rejected_kind,
+            related_hash=header.payload_hash,
+            tick_refs=m.TickRefs(True, self.state_tick, False, 0, False, 0, False, b"\x00" * 16),
+            reason_code=reason_code, retryable=retryable,
+            detail_data=m.DetailData(m.DetailKind.DETAIL_NONE, 0, 0,
+                                     m.OptionalBoundedId(False, ""), m.OptionalHash256(False, b"\x00" * 32)),
+            detail_message="")
+        notice.header = self._header(hashing.reject_notice_hash(notice), self.state_tick * self.fixed_step_ns)
+        self.publish("avva/v1/evidence/reject", notice)
 
     # ---- header ----------------------------------------------------------
     def _header(self, payload_hash: bytes, sim_time_ns: int,
@@ -147,6 +173,12 @@ class SimulationLayer:
             return m.RUN_MISMATCH
         if header.run_epoch != self.run_epoch:
             return m.EPOCH_MISMATCH
+        # 기준서 §5.2.1: SIM/EGO scope면 sim_id가 반드시 존재 — gate.py의 4개 핸들러는
+        # 전부 SIM 또는 EGO scope 메시지만 받으므로 항상 적용된다. 예전엔 존재 여부만
+        # (on_ego_control에서만) 확인했고 실제로 이 컴포넌트의 sim_id와 같은지는 어느
+        # 핸들러도 검사하지 않았다 — 다른 sim_id를 향한 메시지가 그대로 통과할 수 있었음.
+        if not header.sim_id.has_value or header.sim_id.value != self.sim_id:
+            return m.INVALID_HEADER_SCOPE
         return 0
 
     # ---- registry views --------------------------------------------------
@@ -251,26 +283,26 @@ class SimulationLayer:
         return "conflict"
 
     def on_ego_control(self, msg: m.EgoControlCommand) -> None:
-        if not (msg.header.ego_id.has_value and msg.header.sim_id.has_value):
-            return self._event("REJECT", m.INVALID_HEADER_SCOPE, kind=m.EGO_CONTROL_COMMAND)
+        if not msg.header.ego_id.has_value:  # sim_id는 이제 _check_run이 값까지 검사
+            return self._event("REJECT", m.INVALID_HEADER_SCOPE, header=msg.header, kind=m.EGO_CONTROL_COMMAND)
         reason = self._check_run(msg.header) or self._check_ticks(msg.based_on_tick_id, msg.target_tick_id)
         if reason:
-            return self._event("REJECT", reason, kind=m.EGO_CONTROL_COMMAND)
+            return self._event("REJECT", reason, header=msg.header, kind=m.EGO_CONTROL_COMMAND)
         outcome = self._dedup(self.ego_slot, msg)
         if outcome == "duplicate":
             return self._event("DUPLICATE", m.DUPLICATE_IDEMPOTENT, kind=m.EGO_CONTROL_COMMAND)
         if outcome == "conflict":
-            return self._abort(m.PAYLOAD_CONFLICT, kind=m.EGO_CONTROL_COMMAND)
+            return self._abort(m.PAYLOAD_CONFLICT, header=msg.header, kind=m.EGO_CONTROL_COMMAND)
         if msg.command_status == m.CommandStatus.COMMAND_OK:
             if not msg.control.has_value:
-                return self._event("REJECT", m.INVALID_COMMAND_COMBINATION, kind=m.EGO_CONTROL_COMMAND)
+                return self._event("REJECT", m.INVALID_COMMAND_COMBINATION, header=msg.header, kind=m.EGO_CONTROL_COMMAND)
             code = validate_neutral_control(msg.control.value, require_steer=True)
             if code:
-                return self._event("REJECT", code, kind=m.EGO_CONTROL_COMMAND)
+                return self._event("REJECT", code, header=msg.header, kind=m.EGO_CONTROL_COMMAND)
         elif msg.control.has_value or msg.failure_reason == m.UNKNOWN_REASON:
-            return self._event("REJECT", m.INVALID_COMMAND_COMBINATION, kind=m.EGO_CONTROL_COMMAND)
+            return self._event("REJECT", m.INVALID_COMMAND_COMBINATION, header=msg.header, kind=m.EGO_CONTROL_COMMAND)
         if self.state not in ("WAITING_INPUTS", "COLLECTING"):
-            return self._event("REJECT", m.INVALID_STATE, kind=m.EGO_CONTROL_COMMAND)
+            return self._event("REJECT", m.INVALID_STATE, header=msg.header, kind=m.EGO_CONTROL_COMMAND)
         self.ego_slot = msg
         self.state = "COLLECTING"
         self._try_ready()
@@ -278,14 +310,14 @@ class SimulationLayer:
     def on_npc_batch(self, msg: m.NpcControlBatch) -> None:
         reason = self._check_run(msg.header) or self._check_ticks(msg.based_on_tick_id, msg.target_tick_id)
         if reason:
-            return self._event("REJECT", reason, kind=m.NPC_CONTROL_BATCH)
+            return self._event("REJECT", reason, header=msg.header, kind=m.NPC_CONTROL_BATCH)
         outcome = self._dedup(self.npc_slot, msg)
         if outcome == "duplicate":
             return self._event("DUPLICATE", m.DUPLICATE_IDEMPOTENT, kind=m.NPC_CONTROL_BATCH)
         if outcome == "conflict":
-            return self._abort(m.PAYLOAD_CONFLICT, kind=m.NPC_CONTROL_BATCH)
+            return self._abort(m.PAYLOAD_CONFLICT, header=msg.header, kind=m.NPC_CONTROL_BATCH)
         if self.state not in ("WAITING_INPUTS", "COLLECTING"):
-            return self._event("REJECT", m.INVALID_STATE, kind=m.NPC_CONTROL_BATCH)
+            return self._event("REJECT", m.INVALID_STATE, header=msg.header, kind=m.NPC_CONTROL_BATCH)
         self.npc_slot = msg
         self.state = "COLLECTING"
         self._try_ready()
@@ -348,8 +380,15 @@ class SimulationLayer:
             actor_reasons.append(m.ActorReason(a, m.MISSING_ACTOR_RESPONSE))
 
         ego_failed = ego.command_status != m.CommandStatus.COMMAND_OK
+        ego_id = ego.header.ego_id.value
+        # NPC는 registry 대조(UNKNOWN_ACTOR_ID)가 있는데 ego는 없었다 — registry에
+        # 없는 ego_id가 그대로 apply_control로 흘러가 backend KeyError -> 잘못
+        # NATIVE_APPLY_ERROR(재시도 불가 abort)로 분류되는 문제였음. 입력 오류는
+        # 여기서 잡아 재시도 가능한 CommandSetReady INVALID로 되돌린다.
+        if not ego_failed and ego_id not in self._expected_ego_ids():
+            actor_reasons.append(m.ActorReason(ego_id, m.UNKNOWN_ACTOR_ID))
+            ego_failed = True
         if not ego_failed:
-            ego_id = ego.header.ego_id.value
             controls[ego_id] = ego.control.value
 
         completeness = m.Completeness.FULL if not missing else m.Completeness.PARTIAL
@@ -366,7 +405,7 @@ class SimulationLayer:
         self.state = "READY"
 
         counts = m.CommandCounts(
-            expected_ego=1, received_ego=1, valid_ego=0 if ego_failed else 1,
+            expected_ego=len(self._expected_ego_ids()), received_ego=1, valid_ego=0 if ego_failed else 1,
             failed_ego=1 if ego_failed else 0,
             expected_traffic=len(expected_traffic), received_traffic=len(seen),
             valid_traffic=valid_traffic, failed_traffic=failed_traffic)
@@ -387,38 +426,45 @@ class SimulationLayer:
     def on_advance_frame(self, msg: m.AdvanceFrame) -> None:
         reason = self._check_run(msg.header)
         if reason:
-            return self._event("REJECT", reason, kind=m.ADVANCE_FRAME)
+            return self._event("REJECT", reason, header=msg.header, kind=m.ADVANCE_FRAME)
         cached = self.decision_cache.get(msg.decision_id)
         if cached is not None:  # defense 1: idempotent resend of same decision
             self._event("DUPLICATE", m.DUPLICATE_IDEMPOTENT, kind=m.ADVANCE_FRAME)
             self.publish(f"avva/v1/sim/{self.sim_id}/frame_complete", cached)
             return
         if msg.action == m.AdvanceAction.ADVANCE_ABORT:
+            # Core가 스스로 요청한 ABORT를 이행하는 것 — 이 메시지를 "거부"하는 게
+            # 아니므로 RejectNotice 없음(header 미전달, 저장은 계속 위해 kind만 기록)
             return self._abort(msg.abort_reason_code or m.CORE_ABORTED, kind=m.ADVANCE_FRAME)
         if msg.action != m.AdvanceAction.ADVANCE:  # reject ADVANCE_UNSPECIFIED etc., not just non-ABORT
-            return self._event("REJECT", m.OUT_OF_RANGE, kind=m.ADVANCE_FRAME)
+            return self._event("REJECT", m.OUT_OF_RANGE, header=msg.header, kind=m.ADVANCE_FRAME)
         if self.state != "READY":  # defense 2: state gate
-            return self._event("REJECT", m.INVALID_STATE, kind=m.ADVANCE_FRAME)
+            return self._event("REJECT", m.INVALID_STATE, header=msg.header, kind=m.ADVANCE_FRAME)
         snap = self.snapshot
         if msg.target_tick_id != snap.target_tick_id or msg.snapshot_hash != snap.snapshot_hash:
-            return self._abort(m.SNAPSHOT_HASH_MISMATCH, kind=m.ADVANCE_FRAME)
-        assert snap.target_tick_id not in self.ticked, "double native tick"  # defense 3
+            return self._abort(m.SNAPSHOT_HASH_MISMATCH, header=msg.header, kind=m.ADVANCE_FRAME)
+        if snap.target_tick_id in self.ticked:  # defense 3
+            # 예전엔 bare assert였음 -> python -O로 돌리면 이 방어가 통째로 사라짐.
+            # 나머지 파일 전체가 예외를 _abort()로 돌리는 것과 똑같이 처리한다.
+            return self._abort(m.INTERNAL_ERROR, header=msg.header, kind=m.ADVANCE_FRAME,
+                               detail="double native tick (defense 3 violated)")
 
         self.state = "APPLYING"
         t0 = time.perf_counter_ns()
         try:
             self.backend.apply_control(snap.controls)
         except Exception as exc:
-            return self._abort(m.NATIVE_APPLY_ERROR, detail=repr(exc))
+            return self._abort(m.NATIVE_APPLY_ERROR, header=msg.header, kind=m.ADVANCE_FRAME, detail=repr(exc))
         self.state = "TICKING"
         try:
             self.backend.tick()
         except Exception as exc:
-            return self._abort(m.NATIVE_TICK_ERROR, detail=repr(exc))
+            return self._abort(m.NATIVE_TICK_ERROR, header=msg.header, kind=m.ADVANCE_FRAME, detail=repr(exc))
         self.ticked.add(snap.target_tick_id)
         native_now = int(self.backend.native_frame_id())
         if native_now != self._native_frame_before + 1:
-            return self._abort(m.NATIVE_TICK_ERROR, detail="native frame not exactly +1")
+            return self._abort(m.NATIVE_TICK_ERROR, header=msg.header, kind=m.ADVANCE_FRAME,
+                               detail="native frame not exactly +1")
         self._native_frame_before = native_now
         tick_duration = time.perf_counter_ns() - t0
 
@@ -437,14 +483,15 @@ class SimulationLayer:
 
     def on_frame_complete_ack(self, msg: m.FrameCompleteAck) -> None:
         if self._check_run(msg.header):
-            return self._event("REJECT", self._check_run(msg.header), kind=m.FRAME_COMPLETE_ACK)
+            return self._event("REJECT", self._check_run(msg.header), header=msg.header, kind=m.FRAME_COMPLETE_ACK)
         if self.state != "PUBLISHING":
-            return self._event("REJECT", m.INVALID_STATE, kind=m.FRAME_COMPLETE_ACK)
+            return self._event("REJECT", m.INVALID_STATE, header=msg.header, kind=m.FRAME_COMPLETE_ACK)
         expected = self.decision_cache.get(msg.decision_id)
         if (expected is None or msg.state_tick_id != expected.state_tick_id
                 or msg.applied_snapshot_hash != expected.applied_snapshot_hash):
-            return self._abort(m.DECISION_MISMATCH, kind=m.FRAME_COMPLETE_ACK)
+            return self._abort(m.DECISION_MISMATCH, header=msg.header, kind=m.FRAME_COMPLETE_ACK)
         if msg.ack_status != m.AckStatus.ACCEPTED:
+            # Core가 스스로 NACK한 것을 이행하는 것 — RejectNotice 없음(위 ADVANCE_ABORT와 동일 이유)
             return self._abort(msg.reason_code or m.CORE_ABORTED, kind=m.FRAME_COMPLETE_ACK)
         self.ego_slot = self.npc_slot = None
         self.snapshot = None

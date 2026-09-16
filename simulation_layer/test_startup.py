@@ -144,6 +144,21 @@ def test_advance_frame_before_running_does_nothing():
     result.backend.shutdown()
 
 
+def test_multi_ego_manifest_rejected():
+    """기준서 line 55: "Single Ego(ego_0)로 시작" — Phase 1은 단일 ego다. gate.py의
+    ego_slot은 스칼라 1개뿐이라 2명 이상을 그대로 받으면 나중에 두 번째 ego 명령이
+    PAYLOAD_CONFLICT로 run 전체를 죽인다 — Manifest 단계에서 명시적으로 거부해야
+    한다."""
+    manifest = _manifest()
+    manifest.ego_profiles = manifest.ego_profiles + [
+        m.EgoProfile(ego_id="ego_1", source_stack=m.SourceStack.MODULE_CHAIN,
+                    plant_type=m.PlantType.VIRTUAL, vehicle_profile_id="default")]
+    result = start_run(manifest, SIM_ID)
+    assert result.ready.ready_status == m.ReadyStatus.READY_REJECTED
+    assert result.ready.reason_codes == [m.MANIFEST_MISMATCH]
+    assert result.layer is None and result.backend is None
+
+
 TESTS = [
     (test_normal_manifest_reaches_running,
      "정상 Manifest -> RunContext 구성 -> simulator 선택 -> Run Transport 구성 -> "
@@ -157,6 +172,9 @@ TESTS = [
     (test_advance_frame_before_running_does_nothing,
      "ComponentReady(READY) 이후, enter_running() 전에 AdvanceFrame이 와도 native step 0 유지, "
      "INVALID_STATE로 거부"),
+    (test_multi_ego_manifest_rejected,
+     "기준서 line 55(Single Ego로 시작) 위반 -> ego_profiles 2개인 Manifest는 "
+     "READY_REJECTED+MANIFEST_MISMATCH로 Manifest 단계에서 즉시 거부"),
 ]
 
 if __name__ == "__main__":

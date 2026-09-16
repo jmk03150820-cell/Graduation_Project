@@ -89,28 +89,33 @@ def _software_version() -> m.SoftwareVersion:
         git_commit="unknown", build_id="dev", image_digest=m.OptionalHash256(False, b"\x00" * 32))
 
 
-def _component_ready_header(manifest: m.RunManifest, sim_id: str, payload_hash: bytes) -> m.CommonHeader:
+def _component_ready_header(manifest: m.RunManifest, sim_id: str, payload_hash: bytes,
+                            producer_instance_id: bytes, event_seq: int) -> m.CommonHeader:
     # §5.2.1: ComponentReady는 scope에 따름 — Sim Backend는 SIM, sim_id 필수·ego_id 부재.
     return m.CommonHeader(
         schema_major=1, schema_minor=0, run_id=manifest.header.run_id, run_epoch=manifest.header.run_epoch,
         scope_kind=m.ScopeKind.SIM, sim_id=m.OptionalBoundedId(True, sim_id), ego_id=_NO_ID,
-        producer_id=m.ComponentId.SIM_BACKEND, producer_instance_id=uuid.uuid4().bytes,
-        event_seq=1, correlation_id=_NO_UUID, sim_time_ns=_NO_U64,
+        producer_id=m.ComponentId.SIM_BACKEND, producer_instance_id=producer_instance_id,
+        event_seq=event_seq, correlation_id=_NO_UUID, sim_time_ns=_NO_U64,
         wall_time_unix_ns=time.time_ns(), payload_hash=payload_hash)
 
 
 def _component_ready(manifest: m.RunManifest, sim_id: str, status: m.ReadyStatus,
-                     capability_digest: bytes, reason_codes: list[int]) -> m.ComponentReady:
+                     capability_digest: bytes, reason_codes: list[int],
+                     producer_instance_id: bytes, event_seq: int) -> m.ComponentReady:
     ready = m.ComponentReady(
         header=None, manifest_hash=manifest.header.payload_hash, ready_status=status,
         capability_digest=capability_digest, software_version=_software_version(),
         reason_codes=reason_codes)
-    ready.header = _component_ready_header(manifest, sim_id, hashing.component_ready_hash(ready))
+    ready.header = _component_ready_header(manifest, sim_id, hashing.component_ready_hash(ready),
+                                           producer_instance_id, event_seq)
     return ready
 
 
-def _rejected(manifest: m.RunManifest, sim_id: str, reason_code: int) -> StartupResult:
-    ready = _component_ready(manifest, sim_id, m.ReadyStatus.READY_REJECTED, _ZERO_HASH, [reason_code])
+def _rejected(manifest: m.RunManifest, sim_id: str, reason_code: int,
+             producer_instance_id: bytes, event_seq: int) -> StartupResult:
+    ready = _component_ready(manifest, sim_id, m.ReadyStatus.READY_REJECTED, _ZERO_HASH, [reason_code],
+                             producer_instance_id, event_seq)
     return StartupResult(ready, None, None, None)
 
 
@@ -125,17 +130,37 @@ def _default_run_transport_factory(backend, run_id, run_epoch, sim_id, registry,
 
 
 def start_run(manifest: m.RunManifest, own_sim_id: str,
-              run_transport_factory: RunTransportFactory = _default_run_transport_factory) -> StartupResult:
+              run_transport_factory: RunTransportFactory = _default_run_transport_factory,
+              producer_instance_id: bytes | None = None, event_seq: int = 1) -> StartupResult:
     """RunManifest 1개를 받아 ComponentReady까지 진행한다 (candidate 방식).
 
     실패 지점에 따라 reason_code를 구분한다(Capability_runtrasport_readyreject.md §4):
     - Manifest에 필요한 sim_id가 없음 / 선택한 adapter_type을 이 컴포넌트가 지원 안 함 /
       execution_mode·rate가 capability 범위 밖  -> MANIFEST_MISMATCH
     - Manifest 자체는 유효하지만 Run Transport(엔드포인트) 구성 자체가 실패 -> TRANSPORT_ERROR
+
+    producer_instance_id/event_seq: 기준서 5.2 "producer_instance_id는 프로세스 시작마다
+    새 값, event_seq는 그 안에서 단조 증가" — 이 컴포넌트를 살아있는 동안 감싸는
+    쪽(component.py의 SimBackendComponent)이 프로세스 수명 동안 하나씩 만들어서
+    넘겨야 한다. 안 넘기면(단독 호출/테스트) 이 함수 호출마다 새로 만든다 — 예전엔
+    이 fallback이 유일한 경로였어서 실제로 Core가 매 ComponentReady를 "새 인스턴스"로
+    관측하는 버그였다.
     """
+    if producer_instance_id is None:
+        producer_instance_id = uuid.uuid4().bytes
+
+    def rejected(reason_code: int) -> StartupResult:
+        return _rejected(manifest, own_sim_id, reason_code, producer_instance_id, event_seq)
+
     profile = _find_sim_instance(manifest, own_sim_id)
     if profile is None:
-        return _rejected(manifest, own_sim_id, m.MANIFEST_MISMATCH)
+        return rejected(m.MANIFEST_MISMATCH)
+    # 기준서 line 55: "Single Ego(ego_0)로 시작" — Phase 1은 단일 ego. wire schema는
+    # multi-ego 필드(BoundedSeq<EgoProfile,8>)를 유지하지만 이 레이어의 gate.py는
+    # ego_slot이 1개뿐이라 2개 이상은 조용히 받았다가 PAYLOAD_CONFLICT로 run이
+    # 죽는다 — Manifest 단계에서 명시적으로 거부하는 게 맞다.
+    if len(manifest.ego_profiles) > 1:
+        return rejected(m.MANIFEST_MISMATCH)
 
     run_config = RunConfig(target_rate_hz=1e9 / manifest.fixed_step_ns, execution_mode=manifest.execution_mode)
     registry = _build_registry(manifest)
@@ -148,11 +173,11 @@ def start_run(manifest: m.RunManifest, own_sim_id: str,
     except (ValueError, NotImplementedError):
         if backend is not None:
             backend.shutdown()
-        return _rejected(manifest, own_sim_id, m.MANIFEST_MISMATCH)
+        return rejected(m.MANIFEST_MISMATCH)
     except Exception:
         if backend is not None:
             backend.shutdown()
-        return _rejected(manifest, own_sim_id, m.TRANSPORT_ERROR)
+        return rejected(m.TRANSPORT_ERROR)
 
     try:
         # vehicle_profile_id를 spawn spec으로 사용 — CARLA blueprint 문자열과
@@ -162,7 +187,7 @@ def start_run(manifest: m.RunManifest, own_sim_id: str,
             backend.spawn_actor(p.ego_id, p.vehicle_profile_id)
     except Exception:
         backend.shutdown()
-        return _rejected(manifest, own_sim_id, m.TRANSPORT_ERROR)
+        return rejected(m.TRANSPORT_ERROR)
 
     # Run Transport 구성 + mandatory endpoint READY 확인 (candidate)
     try:
@@ -170,11 +195,12 @@ def start_run(manifest: m.RunManifest, own_sim_id: str,
             backend, manifest.header.run_id, manifest.header.run_epoch, own_sim_id, registry, run_config)
     except Exception:
         backend.shutdown()
-        return _rejected(manifest, own_sim_id, m.TRANSPORT_ERROR)
+        return rejected(m.TRANSPORT_ERROR)
 
     # SimulatorCapability 확정 + ComponentReady(READY)
     digest = _capability_digest(backend.capabilities())
-    ready = _component_ready(manifest, own_sim_id, m.ReadyStatus.READY, digest, [])
+    ready = _component_ready(manifest, own_sim_id, m.ReadyStatus.READY, digest, [],
+                             producer_instance_id, event_seq)
     return StartupResult(ready, layer, backend, transport)
 
 

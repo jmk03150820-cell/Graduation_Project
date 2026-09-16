@@ -32,19 +32,14 @@ def to_ros_msg(obj, ros_module):
         value = getattr(obj, f.name)
         if value is None:
             # OptionalXxx.value가 has_value=False일 때 관례적으로 None (avva_phase1.py
-            # 자체는 그대로 둠) — ROS 2 message는 null nested-message를 못 받으므로
-            # 필드 타입에 맞는 기본값으로 대체 (§5.2.1 "has_value=0인 값은 0-normalized").
-            value = _default_for(f.type.strip(), ros_module)
+            # 자체는 그대로 둠). ros_obj = ros_cls()가 이미 이 필드를 rosidl 자신의
+            # 정확한 기본값(uint8[16]/[32]처럼 고정길이 배열도 올바른 길이로 0-채움,
+            # nested message도 재귀적으로 기본 생성)으로 채워놨으므로 그냥 안 건드리고
+            # 넘어간다 — 예전엔 타입 문자열만 보고 별도로 기본값을 다시 만들었는데
+            # bytes 타입에 b""(길이 0)를 넣어서 고정길이 필드에서 깨지는 버그였다.
+            continue
         setattr(ros_obj, f.name, _to_ros_value(value, ros_module))
     return ros_obj
-
-
-def _default_for(type_str: str, ros_module):
-    if type_str in ("int", "float", "bool", "str", "bytes"):
-        return {"int": 0, "float": 0.0, "bool": False, "str": "", "bytes": b""}[type_str]
-    if _is_enum_name(type_str):
-        return 0  # *_UNSPECIFIED/UNKNOWN is ordinal 0 by IDL convention
-    return getattr(ros_module, type_str)()  # default-constructed nested ROS message
 
 
 def _to_ros_value(value, ros_module):
