@@ -334,7 +334,18 @@ class SimBackendRosNode(Node):
 
     def _make_run_transport(self, backend, run_id, run_epoch, sim_id, registry, run_config):
         """RunTransportFactory 구현체. SimulationLayer.publish를 실제 ROS 발행에 잇고,
-        frame data path 구독을 component의 대응 메서드로 연결한다."""
+        frame data path 구독을 component의 대응 메서드로 연결한다.
+
+        미검증 위험(2026-09-18 재검토에서 발견, 리눅스 네이티브 환경에서 재확인
+        예정): 이 메서드는 on_run_manifest() 처리 경로를 통해 _BackendWorker
+        스레드에서 실행되므로, 아래 create_publisher/create_subscription이
+        메인 스레드가 rclpy.spin() 중인 도중 다른 스레드에서 호출된다. rclpy의
+        Node.create_subscription()과 executor의 wait-set 구성 코드 둘 다 각자
+        `.handle` context manager로 잠그긴 하지만(executors.py), 서로 다른
+        handle 객체라 완전히 배타적인지는 소스만으로 확신 못 함 — 이번 세션
+        WSL 테스트에서는 반복 실행해도 크래시가 없었고, run당 한 번(첫 READY
+        manifest)만 타는 좁은 창이라 실전 위험은 낮아 보이지만 이론적으로
+        증명된 건 아니다."""
         ego_ids = sorted(e.actor_id for e in registry if e.role == m.ActorRole.ACTOR_ROLE_EGO)
         if self._frame_publishers is None:
             publishers = {
