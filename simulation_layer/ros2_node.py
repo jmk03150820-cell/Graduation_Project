@@ -276,6 +276,16 @@ class SimBackendRosNode(Node):
         if pub is not None:
             pub.publish(conv.to_ros_msg(notice, ros_msgs))
 
+    def _try_submit_or_log(self, label: str, operation: Callable[[], None]) -> bool:
+        """try_submit()이 이전 operation의 저장된 예외를 다시 던지는 경우까지
+        포함해 "제출 안 됨"으로 통일한다 — 이걸 안 잡으면 예외가 ROS 콜백 밖으로
+        그대로 새어나가 stall/RejectNotice 처리를 건너뛰게 된다."""
+        try:
+            return self._worker.try_submit(operation)
+        except BaseException as exc:  # noqa: BLE001 — 다음 시도부턴 worker가 다시 받는다(avva-platform과 동일)
+            self.get_logger().error(f"{label}: sim backend worker raised on a previous operation: {exc!r}")
+            return False
+
     def _submit_or_reject(self, label: str, rejected_kind: int, header: m.CommonHeader,
                           operation: Callable[[], None]) -> bool:
         """frame-path 공용 overflow 처리. AVVA 공통 설계.docx 확정: 에러는 즉시
@@ -286,7 +296,7 @@ class SimBackendRosNode(Node):
         """
         if self._worker_stalled:
             return False
-        if self._worker.try_submit(operation):
+        if self._try_submit_or_log(label, operation):
             return True
         self._worker_stalled = True
         self.get_logger().error(f"{label} dropped: sim backend worker stalled -- run aborted at ROS boundary")
@@ -310,7 +320,7 @@ class SimBackendRosNode(Node):
             ack = self.component.on_run_control(cmd)
             self._ack_pub.publish(conv.to_ros_msg(ack, ros_msgs))
 
-        if not self._worker_stalled and self._worker.try_submit(_process):
+        if not self._worker_stalled and self._try_submit_or_log("RunControlCommand", _process):
             return
         # RunControlAck(ACK_REJECTED, QUEUE_TIMEOUT)가 이 채널의 정식 거부
         # 응답이라 RejectNotice를 추가로 발행하진 않는다 — 대신 frame-path도
