@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from threading import Lock
 
 import avva_phase1 as m
 
@@ -68,10 +69,14 @@ class SimBackendComponent:
         # Core가 매번 "새 인스턴스"로 관측해서 SEQUENCE_ANOMALY 탐지가 무력화된다.
         self._producer_instance_id = uuid.uuid4().bytes
         self._event_seq = 0
+        # ROS 경계에 worker thread를 두면(ros2_node.py) overflow 시 콜백 스레드가
+        # worker와 동시에 header를 만들 수 있다 — event_seq 재사용/역전을 막는 lock.
+        self._event_seq_lock = Lock()
 
     def _next_event_seq(self) -> int:
-        self._event_seq += 1
-        return self._event_seq
+        with self._event_seq_lock:
+            self._event_seq += 1
+            return self._event_seq
 
     @property
     def producer_instance_id(self) -> bytes:
@@ -166,6 +171,14 @@ class SimBackendComponent:
             ack = self._ack(msg.command_id, msg.action, m.AckStatus.ACK_REJECTED, m.INVALID_STATE)
         self._command_cache[msg.command_id] = (msg.header.payload_hash, ack)
         return ack
+
+    def reject_busy(self, command_id: bytes, action: m.RunControlAction) -> m.RunControlAck:
+        """ros2_node.py의 worker queue가 가득 찼을 때 콜백 스레드에서 안전하게 부르는
+        거부 ack — QUEUE_TIMEOUT(4002, 계약에 이미 정의돼 있었지만 미사용이던 코드)을
+        쓴다. _command_cache에는 넣지 않는다: 이건 이 command_id에 대한 최종 판정이
+        아니라 "지금은 못 받았다"이므로, 같은 command_id로 재전송되면 worker가 비었을
+        때 정상적으로 다시 시도될 수 있어야 한다."""
+        return self._ack(command_id, action, m.AckStatus.ACK_REJECTED, m.QUEUE_TIMEOUT)
 
     def abort_run(self, command_id: bytes = b"\x00" * 16, reason_code: int = m.UNKNOWN_REASON) -> m.RunControlAck:
         """RunEndRestart_Rule.md §1: 현재 Run만 정리, 컴포넌트 인스턴스는 살아남는다."""
