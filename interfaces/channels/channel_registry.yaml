@@ -1,0 +1,28 @@
+schema: avva_channel_registry_v1
+transport_profiles: [INPROC_TEST, LOCAL_HYBRID, ROS2_REFERENCE]
+delivery_classes:
+  RELIABLE_LATCHED: {reliability: reliable, durability: transient_local, history: keep_last}
+  RELIABLE_NO_DROP: {reliability: reliable, durability: volatile, history: keep_last}
+  RELIABLE_LATEST: {reliability: reliable, durability: volatile, history: keep_last}
+  BEST_EFFORT_TELEMETRY: {reliability: best_effort, durability: volatile, history: keep_last, drop_allowed: true}
+channels:
+  - {name: avva/v1/run/manifest, message: RunManifest, kind: 1, producer: CORE, consumers: [ALL_REQUIRED], delivery: RELIABLE_LATCHED, depth: 1}
+  - {name: avva/v1/run/control, message: RunControlCommand, kind: 3, producer: CORE, consumers: [ALL_REQUIRED], delivery: RELIABLE_NO_DROP, depth: 16}
+  - {name: avva/v1/run/component_ready, message: ComponentReady, kind: 2, producer: EACH_COMPONENT, consumers: [CORE], delivery: RELIABLE_NO_DROP, depth: 32}
+  - {name: avva/v1/run/control_ack, message: RunControlAck, kind: 4, producer: EACH_COMPONENT, consumers: [CORE], delivery: RELIABLE_NO_DROP, depth: 32}
+  - {name: "avva/v1/sim/{sim_id}/world_state", message: WorldStateFrame, kind: 10, producer: SIM_BACKEND, consumers: [TRAFFIC_ADAPTER], delivery: RELIABLE_NO_DROP, depth: 4}
+  - {name: "avva/v1/sim/{sim_id}/ego/{ego_id}/observation", message: EgoObservationFrame, kind: 11, producer: SIM_BACKEND, consumers: [EGO_ADAPTER], delivery: RELIABLE_NO_DROP, depth: 4}
+  - {name: "avva/v1/sim/{sim_id}/ego/{ego_id}/control", message: EgoControlCommand, kind: 12, producer: EGO_ADAPTER, consumers: [SIM_BACKEND], delivery: RELIABLE_NO_DROP, depth: 4}
+  - {name: "avva/v1/sim/{sim_id}/npc_control", message: NpcControlBatch, kind: 13, producer: TRAFFIC_ADAPTER, consumers: [SIM_BACKEND], delivery: RELIABLE_NO_DROP, depth: 4}
+  - {name: "avva/v1/sim/{sim_id}/command_ready", message: CommandSetReady, kind: 20, producer: SIM_BACKEND, consumers: [CORE], delivery: RELIABLE_NO_DROP, depth: 4}
+  - {name: "avva/v1/sim/{sim_id}/advance", message: AdvanceFrame, kind: 21, producer: CORE, consumers: [SIM_BACKEND], delivery: RELIABLE_NO_DROP, depth: 4}
+  - {name: "avva/v1/sim/{sim_id}/frame_complete", message: FrameComplete, kind: 22, producer: SIM_BACKEND, consumers: [CORE], delivery: RELIABLE_NO_DROP, depth: 4}
+  - {name: "avva/v1/sim/{sim_id}/frame_complete_ack", message: FrameCompleteAck, kind: 23, producer: CORE, consumers: [SIM_BACKEND], delivery: RELIABLE_NO_DROP, depth: 4}
+  - {name: avva/v1/health/heartbeat, message: ComponentHeartbeat, kind: 30, producer: ALL_REQUIRED, consumers: [CORE, RECORDER], delivery: RELIABLE_LATEST, depth: 1, depth_scope: producer}
+  - {name: avva/v1/evidence/reject, message: RejectNotice, kind: 40, producer: VALIDATOR, consumers: [ORIGINAL_SENDER, CORE], delivery: RELIABLE_NO_DROP, depth: 32}
+  - {name: avva/v1/evidence/status, message: StatusEvent, kind: 41, producer: ALL_COMPONENTS, consumers: [CORE, RECORDER], delivery: RELIABLE_NO_DROP, depth: 64}
+  - {name: avva/v1/evidence/timing, message: TimingEvent, kind: 42, producer: ALL_COMPONENTS, consumers: [RECORDER], delivery: BEST_EFFORT_TELEMETRY, depth: 256}
+shm_policy:
+  topology: SPSC_per_producer_consumer_pair
+  critical_full: wait_queue_timeout_then_abort_epoch
+  telemetry_full: drop_and_increment_drop_count

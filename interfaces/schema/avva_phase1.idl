@@ -1,0 +1,138 @@
+// AVVA Phase 1 external wire contract. Schema 1.0.
+// This file is the normative source; generated bindings MUST NOT be edited.
+#ifndef AVVA_PHASE1_IDL
+#define AVVA_PHASE1_IDL
+
+module avva_interfaces { module msg {
+
+  const unsigned short SCHEMA_MAJOR = 1;
+  const unsigned short SCHEMA_MINOR = 0;
+  const unsigned long AVVA_MAX_ID_BYTES = 63;
+  const unsigned long AVVA_MAX_TEXT_BYTES = 255;
+  const unsigned long AVVA_MAX_SIM_COUNT = 8;
+  const unsigned long AVVA_MAX_EGO_COUNT = 8;
+  const unsigned long AVVA_MAX_ACTOR_COUNT = 1200;
+  const unsigned long AVVA_MAX_REPORT_COUNT = 32;
+  const unsigned long AVVA_MAX_PREDICTION_POINTS = 32;
+  const unsigned long AVVA_MAX_SOFTWARE_VERSION_COUNT = 32;
+
+  typedef octet Uuid128[16];
+  typedef octet Hash256[32];
+  typedef string<63> BoundedId;
+  typedef string<255> BoundedText255;
+
+  enum ScopeKind { SCOPE_UNSPECIFIED, GLOBAL, SIM, EGO };
+  enum ComponentId { COMPONENT_UNSPECIFIED, CORE, SIM_BACKEND, TRAFFIC_ADAPTER, EGO_ADAPTER, RECORDER, RC_SAFETY_GATE, NATIVE_ADAPTER };
+  enum ExecutionMode { EXECUTION_UNSPECIFIED, SYNC_FIXED_STEP };
+  enum ActorRole { ACTOR_ROLE_UNKNOWN, ACTOR_ROLE_EGO, NPC, PEDESTRIAN, STATIC_OBJECT };
+  enum ActorClass { ACTOR_CLASS_UNKNOWN, PASSENGER_CAR, TRUCK, BUS, MOTORCYCLE, BICYCLE, ACTOR_CLASS_PEDESTRIAN, ACTOR_CLASS_STATIC_OBJECT };
+  enum ControlOwner { CONTROL_OWNER_UNSPECIFIED, EGO_STACK, TRAFFIC_ENGINE, SIMULATOR_NATIVE, CONTROL_OWNER_NONE };
+  enum Lifecycle { LIFECYCLE_UNSPECIFIED, SPAWN_REQUESTED, ACTIVE, DESPAWN_REQUESTED, REMOVED };
+  enum RepresentationLevel { REPRESENTATION_UNSPECIFIED, LOGICAL, ACTIVE_PROXY, FULL_PHYSICS };
+  enum LifecycleIntent { LIFECYCLE_INTENT_UNSPECIFIED, INTENT_SPAWN_REQUESTED, INTENT_DESPAWN_REQUESTED };
+  enum CommandAction { COMMAND_ACTION_UNSPECIFIED, APPLY, HOLD, NO_OP };
+  enum ItemStatus { ITEM_STATUS_UNSPECIFIED, ITEM_OK, ITEM_FAILED, DESPAWNED };
+  enum CommandStatus { COMMAND_STATUS_UNSPECIFIED, COMMAND_OK, COMMAND_FAILED };
+  enum ControlMode { CONTROL_MODE_UNSPECIFIED, VELOCITY_TARGET, ACCELERATION_TARGET, DIRECT_ACTUATION };
+  enum Completeness { COMPLETENESS_UNSPECIFIED, FULL, PARTIAL };
+  enum Validity { VALIDITY_UNSPECIFIED, VALID, INVALID };
+  enum StateValidity { STATE_UNKNOWN, STATE_VALID, ESTIMATED, STATE_INVALID };
+  enum SourceStack { SOURCE_UNSPECIFIED, AUTOWARE, RL, MODULE_CHAIN };
+  enum Gear { GEAR_UNKNOWN, PARK, REVERSE, NEUTRAL, DRIVE };
+  enum HealthStatus { HEALTH_UNKNOWN, HEALTH_OK, DEGRADED, HEALTH_ERROR, LOST };
+  enum ReadyStatus { READY_UNSPECIFIED, READY, READY_REJECTED };
+  enum AckStatus { ACK_UNSPECIFIED, ACCEPTED, ACK_REJECTED };
+  enum AdvanceAction { ADVANCE_UNSPECIFIED, ADVANCE, ADVANCE_ABORT };
+  enum RunControlAction { RUN_CONTROL_UNSPECIFIED, PREPARE, START, PAUSE, RESUME, RUN_ABORT };
+  enum RunState { RUN_UNKNOWN, IDLE, CONFIGURING, WARMING_UP, RUNNING, PAUSED, ABORTING, COMPLETED, RUN_ERROR };
+  enum ComponentState { COMPONENT_UNKNOWN, STARTING, COMPONENT_READY_STATE, COMPONENT_RUNNING, COMPONENT_PAUSED, STOPPING, STOPPED, COMPONENT_ERROR };
+  enum Severity { SEVERITY_UNKNOWN, DEBUG, INFO, WARN, ERROR, FATAL };
+  enum ActionTaken { ACTION_NONE, ACKED, RESENT, ACTION_REJECTED, ABORTED, EMERGENCY_STOPPED, LOGGED_ONLY };
+  enum EventType { EVENT_UNKNOWN, STATE_TRANSITION, WARMUP_PROGRESS, VALIDATION_REJECTED, TIMEOUT_DETECTED, NATIVE_FAILURE, SAFETY_EVENT, EVIDENCE_FAILURE };
+  enum DetailKind { DETAIL_NONE, VALIDATION_DETAIL, TIMEOUT_DETAIL, NATIVE_DETAIL, TRANSPORT_DETAIL, SAFETY_DETAIL, WARMUP_PROGRESS_DETAIL };
+  enum TimingSegment { TIMING_UNKNOWN, RELAY, STACK, CONVERT, ASSEMBLY, PUBLISH_CALL, FRAME_INPUT_WAIT, NATIVE_APPLY, NATIVE_TICK, STATE_PUBLISH, COMPLETE_ACK_WAIT };
+  enum TransportProfile { TRANSPORT_UNSPECIFIED, INPROC_TEST, LOCAL_HYBRID, ROS2_REFERENCE };
+  enum PlantType { PLANT_UNSPECIFIED, VIRTUAL, CHAMELEON, SPARK, THOR };
+  enum NativeAdapterType { NATIVE_ADAPTER_UNSPECIFIED, CARLA, MORAI, AURELION };
+  enum TrafficEngineType { TRAFFIC_ENGINE_UNSPECIFIED, SUMO_TRACI, TERASIM, MOSS };
+  enum DeterminismCapability { DETERMINISM_UNKNOWN, BIT_EXACT, NUMERIC_TOLERANCE, NON_DETERMINISTIC };
+
+  // IDL enum ordinals are fixed by declaration order above. The uint16
+  // MessageKind and ReasonCode constants preserve their sparse wire values.
+  typedef unsigned short MessageKind;
+  const MessageKind RUN_MANIFEST=1, COMPONENT_READY=2, RUN_CONTROL_COMMAND=3, RUN_CONTROL_ACK=4;
+  const MessageKind WORLD_STATE_FRAME=10, EGO_OBSERVATION_FRAME=11, EGO_CONTROL_COMMAND=12, NPC_CONTROL_BATCH=13;
+  const MessageKind COMMAND_SET_READY=20, ADVANCE_FRAME=21, FRAME_COMPLETE=22, FRAME_COMPLETE_ACK=23;
+  const MessageKind COMPONENT_HEARTBEAT=30, REJECT_NOTICE=40, STATUS_EVENT=41, TIMING_EVENT=42;
+  typedef unsigned short ReasonCode;
+  const ReasonCode UNKNOWN_REASON=0, SCHEMA_INCOMPATIBLE=1, RUN_MISMATCH=2, EPOCH_MISMATCH=3, MANIFEST_MISMATCH=4, INVALID_HEADER_SCOPE=5;
+  const ReasonCode STALE_TICK=1000, FUTURE_TICK=1001, TICK_RELATION_INVALID=1002, DUPLICATE_IDEMPOTENT=1003, PAYLOAD_CONFLICT=1004, DECISION_MISMATCH=1005, SNAPSHOT_HASH_MISMATCH=1006, INVALID_STATE=1007;
+  const ReasonCode ACTOR_SET_MISMATCH=2000, MISSING_ACTOR_RESPONSE=2001, DUPLICATE_ACTOR_ID=2002, UNKNOWN_ACTOR_ID=2003, SPAWN_FAILED=2004, REMOVE_FAILED=2005, COMPUTE_FAILED=2006, LIFECYCLE_INVALID=2007, INVALID_COMMAND_COMBINATION=2008;
+  const ReasonCode CAN_WRITE_FAILED=3000, EMERGENCY_STOP_TRIGGERED=3001, CORE_ABORTED=3002, SAFETY_GATE_REJECTED=3003;
+  const ReasonCode TRANSPORT_ERROR=4000, EVIDENCE_PERSIST_FAILED=4001, QUEUE_TIMEOUT=4002, PUBLISH_TIMEOUT=4003;
+  const ReasonCode DEADLINE_EXCEEDED=5000, TIMEOUT=5001, HEARTBEAT_LOST=5002, SEQUENCE_ANOMALY=5003, NATIVE_APPLY_ERROR=5004, NATIVE_TICK_ERROR=5005, NATIVE_SESSION_LOST=5006;
+  const ReasonCode INVALID_FIELD_MASK=6000, NON_FINITE_VALUE=6001, INVALID_QUATERNION=6002, OUT_OF_RANGE=6003, UNSUPPORTED_CONTROL_MODE=6004, CONVERSION_FAILED=6005, INTERNAL_ERROR=9000;
+
+  struct OptionalBoundedId { boolean has_value; BoundedId value; };
+  struct OptionalUuid128 { boolean has_value; Uuid128 value; };
+  struct OptionalUint64 { boolean has_value; unsigned long long value; };
+  struct OptionalHash256 { boolean has_value; Hash256 value; };
+  struct SemanticVersion { unsigned short major; unsigned short minor; unsigned short patch; };
+  struct ContentRef { BoundedId id; Hash256 sha256; };
+  struct Vector3d { double x; double y; double z; };
+  struct Quaterniond { double x; double y; double z; double w; };
+  struct Dimensions3d { double length_m; double width_m; double height_m; };
+  struct OptionalDimensions3d { boolean has_value; Dimensions3d value; };
+  struct Pose3d { Vector3d position_m; Quaterniond orientation_xyzw; };
+  struct Twist3d { Vector3d linear_mps; Vector3d angular_rad_s; };
+  struct Covariance6x6 { double values[36]; };
+  struct NativeFrameRef { Uuid128 native_session_id; unsigned long native_generation; BoundedId native_frame_id; };
+  struct ControlSetMeta { unsigned long long version; Hash256 digest; unsigned short expected_ego_count; unsigned long expected_traffic_count; };
+  struct CommonHeader { unsigned short schema_major; unsigned short schema_minor; Uuid128 run_id; unsigned long long run_epoch; ScopeKind scope_kind; OptionalBoundedId sim_id; OptionalBoundedId ego_id; ComponentId producer_id; Uuid128 producer_instance_id; unsigned long long event_seq; OptionalUuid128 correlation_id; OptionalUint64 sim_time_ns; long long wall_time_unix_ns; Hash256 payload_hash; };
+
+  struct AdapterCapability { unsigned long control_mode_mask; boolean supports_physics; boolean supports_spawn; boolean supports_despawn; unsigned long max_actor_count; };
+  struct SimInstanceProfile { BoundedId sim_id; NativeAdapterType adapter_type; BoundedId adapter_version; AdapterCapability capability; DeterminismCapability determinism; };
+  struct EgoProfile { BoundedId ego_id; SourceStack source_stack; PlantType plant_type; BoundedId vehicle_profile_id; };
+  struct TrafficProfile { TrafficEngineType engine_type; BoundedId binary_version; unsigned long long fixed_step_ns; unsigned long long derived_seed; Hash256 demand_hash; };
+  struct TimeoutConfig { unsigned long long ready_timeout_ns; unsigned long long apply_timeout_ns; unsigned long long tick_timeout_ns; unsigned long long heartbeat_timeout_ns; unsigned long long queue_timeout_ns; unsigned long long publish_ack_timeout_ns; };
+  struct LoggingProfile { unsigned short critical_depth; unsigned short general_depth; unsigned long long flush_period_ns; unsigned short retention_days; };
+  struct SoftwareVersion { ComponentId component_id; SemanticVersion semantic_version; BoundedId git_commit; BoundedId build_id; OptionalHash256 image_digest; };
+  struct DetailData { DetailKind kind; long long numeric0; long long numeric1; OptionalBoundedId id0; OptionalHash256 related_hash; };
+
+  struct ActorState { BoundedId actor_id; ActorRole actor_role; ControlOwner control_owner; Lifecycle lifecycle; RepresentationLevel representation_level; ActorClass class_id; Vector3d position_m; Quaterniond orientation_xyzw; Vector3d velocity_mps; Vector3d acceleration_mps2; Vector3d angular_velocity_rad_s; OptionalDimensions3d dimensions_m; StateValidity state_validity; };
+  struct OptionalActorState { boolean has_value; ActorState value; };
+  struct OptionalRepresentationLevel { boolean has_value; RepresentationLevel value; };
+  struct ObservedObject { BoundedId actor_id; ActorClass class_id; Pose3d pose; Twist3d twist; Covariance6x6 pose_covariance; Covariance6x6 twist_covariance; StateValidity state_validity; };
+  struct PredictionPoint { unsigned long long relative_time_ns; Pose3d pose; Vector3d velocity_mps; };
+  struct PredictedPath { BoundedId actor_id; unsigned short path_id; double probability; sequence<PredictionPoint,32> points; };
+  struct TickRefs { boolean has_state_tick_id; unsigned long long state_tick_id; boolean has_based_on_tick_id; unsigned long long based_on_tick_id; boolean has_target_tick_id; unsigned long long target_tick_id; boolean has_decision_id; Uuid128 decision_id; };
+
+  struct NeutralControl { ControlMode control_mode; unsigned long valid_fields_mask; double steering_tire_angle_rad; double steering_tire_rotation_rate_rad_s; double velocity_mps; double acceleration_mps2; double jerk_mps3; double throttle; double brake; Gear gear; boolean hand_brake; };
+  struct OptionalNeutralControl { boolean has_value; NeutralControl value; };
+  struct NpcControlItem { BoundedId actor_id; CommandAction action; ItemStatus status; OptionalNeutralControl control; ReasonCode failure_reason; };
+  struct ActorLifecycleIntent { BoundedId actor_id; LifecycleIntent intent; OptionalActorState initial_state; OptionalRepresentationLevel representation_level; unsigned short intent_retry_count; ReasonCode reason_context; };
+  struct CommandCounts { unsigned short expected_ego; unsigned short received_ego; unsigned short valid_ego; unsigned short failed_ego; unsigned long expected_traffic; unsigned long received_traffic; unsigned long valid_traffic; unsigned long failed_traffic; };
+  struct ActorReason { BoundedId actor_id; ReasonCode reason_code; };
+  struct ComponentHealthIssue { ComponentId component_id; HealthStatus health_status; ReasonCode reason_code; };
+  struct HealthSummary { HealthStatus overall_health; sequence<ComponentHealthIssue,32> issues; boolean truncated; };
+  struct Warning { ReasonCode code; DetailData data; BoundedText255 detail_message; };
+
+  struct RunManifest { CommonHeader header; SemanticVersion manifest_version; ExecutionMode execution_mode; unsigned long long fixed_step_ns; unsigned long warmup_ticks; unsigned long long seed; ContentRef map_ref; ContentRef scenario_ref; sequence<SimInstanceProfile,8> sim_instances; sequence<BoundedId,8> required_sim_ids; sequence<EgoProfile,8> ego_profiles; TrafficProfile traffic_profile; unsigned long max_actor_count; unsigned short max_report_count; unsigned short max_prediction_points; unsigned long long deadline_budget_ns; TimeoutConfig timeouts; TransportProfile transport_profile; sequence<SoftwareVersion,32> software_versions; LoggingProfile logging_profile; };
+  struct ComponentReady { CommonHeader header; Hash256 manifest_hash; ReadyStatus ready_status; Hash256 capability_digest; SoftwareVersion software_version; sequence<ReasonCode,32> reason_codes; };
+  struct RunControlCommand { CommonHeader header; Uuid128 command_id; RunControlAction action; ReasonCode reason_code; };
+  struct RunControlAck { CommonHeader header; Uuid128 command_id; RunControlAction action; AckStatus ack_status; RunState current_run_state; ReasonCode reason_code; };
+  struct WorldStateFrame { CommonHeader header; unsigned long long state_tick_id; NativeFrameRef native_frame_ref; ControlSetMeta control_set_meta; sequence<BoundedId,8> expected_ego_ids; sequence<BoundedId,1200> expected_traffic_actor_ids; sequence<ActorState,1200> actors; HealthStatus backend_health; };
+  struct EgoObservationFrame { CommonHeader header; unsigned long long state_tick_id; ActorState ego_state; sequence<ObservedObject,1200> gt_objects; ControlSetMeta control_set_meta; boolean perfect_prediction_enabled; sequence<PredictedPath,1200> predicted_paths; unsigned long long deadline_budget_ns; };
+  struct EgoControlCommand { CommonHeader header; unsigned long long based_on_tick_id; unsigned long long target_tick_id; SourceStack source_stack; unsigned long long control_time_sim_ns; CommandStatus command_status; OptionalNeutralControl control; ReasonCode failure_reason; };
+  struct NpcControlBatch { CommonHeader header; unsigned long long based_on_tick_id; unsigned long long target_tick_id; ControlSetMeta control_set_meta; sequence<NpcControlItem,1200> items; sequence<ActorLifecycleIntent,1200> lifecycle_intents; unsigned long long engine_step_id; unsigned long long engine_sim_time_ns; unsigned long long engine_step_duration_ns; };
+  struct CommandSetReady { CommonHeader header; unsigned long long target_tick_id; CommandCounts counts; ControlSetMeta control_set_meta; Completeness completeness; Validity validity; sequence<BoundedId,32> missing_actor_ids; sequence<ActorReason,32> actor_reasons; boolean reports_truncated; HealthSummary health_summary; Hash256 snapshot_hash; };
+  struct AdvanceFrame { CommonHeader header; Uuid128 decision_id; unsigned long long target_tick_id; Hash256 snapshot_hash; AdvanceAction action; ReasonCode abort_reason_code; };
+  struct FrameComplete { CommonHeader header; unsigned long long state_tick_id; Uuid128 decision_id; Hash256 applied_snapshot_hash; NativeFrameRef native_frame_ref; unsigned long long tick_duration_ns; ControlSetMeta control_set_meta; sequence<Warning,32> warnings; };
+  struct FrameCompleteAck { CommonHeader header; Uuid128 decision_id; unsigned long long state_tick_id; Hash256 applied_snapshot_hash; AckStatus ack_status; ReasonCode reason_code; };
+  struct ComponentHeartbeat { CommonHeader header; ComponentState component_state; HealthStatus health_status; OptionalUint64 last_state_tick_id; OptionalUint64 last_target_tick_id; OptionalUuid128 native_session_id; unsigned long long monotonic_time_ns; };
+  struct RejectNotice { CommonHeader header; ComponentId target_component_id; MessageKind rejected_message_kind; Hash256 related_hash; TickRefs tick_refs; ReasonCode reason_code; boolean retryable; DetailData detail_data; BoundedText255 detail_message; };
+  struct StatusEvent { CommonHeader header; ComponentId subject_component_id; EventType event_type; Severity severity; ReasonCode reason_code; ActionTaken action_taken; RunState run_state; TickRefs tick_refs; DetailData detail_data; BoundedText255 detail_message; };
+  struct TimingEvent { CommonHeader header; TimingSegment segment; unsigned long long start_monotonic_ns; unsigned long long end_monotonic_ns; unsigned long long duration_ns; BoundedId monotonic_clock_domain_id; TickRefs tick_refs; };
+
+}; };
+#endif

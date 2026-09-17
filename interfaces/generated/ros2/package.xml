@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>avva_interfaces</name><version>0.3.0</version>
+  <description>AVVA Phase 1 external contract</description>
+  <maintainer email="avva@example.invalid">AVVA Interface Owners</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+
