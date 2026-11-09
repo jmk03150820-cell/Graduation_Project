@@ -1,0 +1,34 @@
+{
+  "schema": "avva_hash_v1",
+  "rules": {
+    "integer_and_enum_byte_order": "little-endian",
+    "uuid_byte_order": "RFC4122 network order",
+    "bounded_id": "uint8 byte_length + UTF-8 bytes",
+    "sequence": "uint32 count + items",
+    "float": "IEEE754 binary64 little-endian; -0 normalized; NaN/Inf forbidden",
+    "set_order": "ascending canonical bytes",
+    "padding": "excluded"
+  },
+  "vectors": [
+    {
+      "name": "bounded_id_ego_0",
+      "canonical_hex": "0565676f5f30",
+      "sha256": "fdffdf9d7238fcbbcd8e871943dcd764fb309cde8a519745a4b18fa9ae400d3a"
+    },
+    {
+      "name": "frame_complete_ack_payload",
+      "canonical_hex": "415656412d5041594c4f41442d5631001700550e8400e29b41d4a7164466554400000100000000000000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f010000",
+      "sha256": "e2bdb712c344ae652ce2b0cbb2aac4873ca46f461c1a1d8c800fdfa231ded046"
+    },
+    {
+      "name": "control_set_digest",
+      "canonical_hex": "415656412d434f4e54524f4c2d5345542d563100020000000565676f5f3001010203056e70635f3102020202",
+      "sha256": "6b2fc85190dd0ef3cfd97fd6291e2edc8cf8a377a1881b67cf0b4d9429507aca"
+    },
+    {
+      "name": "snapshot_empty_inputs",
+      "canonical_hex": "415656412d534e415053484f542d563100550e8400e29b41d4a7164466554400000100000000000000076361726c615f3001000000000000006b2fc85190dd0ef3cfd97fd6291e2edc8cf8a377a1881b67cf0b4d9429507aca00000000",
+      "sha256": "f973b4282c1346c9d8a1ac37b4ccf1840d7bf164d32c7bcc1fb317e89e6df4a2"
+    }
+  ]
+}
